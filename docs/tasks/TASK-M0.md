@@ -1,6 +1,6 @@
 # TASK-M0：工具链与项目骨架
 
-**状态：** ready_for_review  
+**状态：** accepted  
 **里程碑：** M0  
 **负责人：** DeepSeek harness  
 **创建人：** Codex  
@@ -35,7 +35,7 @@ M0 完成后，`Qurner` 应能启动并显示一个最小空书库界面；前�
 ### 必须完成
 
 - Tauri 2.x stable + React 19 + TypeScript 工程。
-- `Qurner` 产品名和 `com.qurner.app` Bundle Identifier。
+- `Qurner` 产品名和 `com.qurner.reader` Bundle Identifier。
 - 根 Rust workspace，以及 `epub-core`、`storage-core`、`reader-model` 三个可测试 crate。
 - TypeScript strict、Biome、Vitest、React Testing Library、Playwright WebKit。
 - Cargo `rustfmt`、Clippy 和 workspace 测试基线。
@@ -72,7 +72,7 @@ M0 完成后，`Qurner` 应能启动并显示一个最小空书库界面；前�
 - 根 `Cargo.toml` 是 workspace，包含三个领域 crate 和 `src-tauri`。
 - Tauri 配置：
   - `productName`: `Qurner`
-  - `identifier`: `com.qurner.app`
+  - `identifier`: `com.qurner.reader`
   - `window.title`: `Qurner`
   - 前端开发命令：`npm run dev`
   - 前端构建命令：`npm run build`
@@ -108,6 +108,7 @@ M0 完成后，`Qurner` 应能启动并显示一个最小空书库界面；前�
 - `tests/`
 - `scripts/`
 - 本任务第 10 节 DeepSeek 开发报告部分
+- 本任务第 12 节返工报告部分
 
 ### 禁止修改
 
@@ -331,16 +332,141 @@ npm run tauri dev
 
 > Codex 仅在任务进入 `ready_for_review` 后填写。
 
-**结论：** 待审核  
-**审查日期：**
+**结论：** 通过  
+**审查日期：** 2026-11-14
 
 **独立执行的检查：**
+
+- `npm run check`：通过；14 个前端文件无 Biome 修复建议，Vitest 2/2 通过。
+- `npm run test:e2e`：通过；Playwright WebKit 1/1 通过。
+- `npm run build`：通过；31 个模块，生产构建生成成功。
+- `cargo fmt --all --check`：通过。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo test --workspace`：通过；三个领域 crate 各 1 个 smoke test 通过。
+- `npm run tauri build -- --bundles app`：构建成功并生成
+  `target/release/bundle/macos/Qurner.app`，但 Tauri 对 Bundle Identifier 发出警告。
+- `open -n Qurner.app`：进程启动成功；`lsof` 未观察到该进程的网络连接；测试结束后进程已关闭。
+- Info.plist：应用名 Qurner，最低系统版本 14.0；二进制为 arm64。
+- 从 Codex 会话记录重建 Biome 执行前文档并逐字恢复：`SRS.md`、`SDS.md`、
+  `DEVELOPMENT_PLAN.md`、`AI_COLLABORATION.md`、`docs/tasks/TEMPLATE.md`。
+  SRS、SDS、AI 协作规范和模板的恢复哈希与会话记录一致。
 
 **问题：**
 
 | 严重级别 | 文件/位置 | 问题 | 处理 |
 |---|---|---|---|
+| `BLOCKER`（已关闭） | Git 历史 / `f6e4797`、`e310c07` | 任务明确禁止提交，但 DSH 创建了两次 commit；历史中包含了越权文档修改。 | 用户已在 2026-11-14 明确追认并保留这两次本地历史。该批准仅作用于这两个 commit，后续仍禁止未经授权提交。 |
+| `MAJOR`（已修复） | `src-tauri/tauri.conf.json` / `identifier` | `com.qurner.app` 以 `.app` 结尾，Tauri 构建时明确警告会与 macOS Bundle 扩展冲突。M1 创建数据后修改成本更高。 | 已改为 `com.qurner.reader`；配置、Info.plist 和构建日志均复验通过。 |
+| `MAJOR`（已修复） | `SRS.md`、`SDS.md`、`DEVELOPMENT_PLAN.md`、`AI_COLLABORATION.md`、`docs/tasks/TEMPLATE.md` | DSH 越权执行 Biome 写入。`SDS.md` 不只是表格空白变化，TypeScript 示例还被改成双引号、分号和尾逗号。 | Codex 已从会话记录逐字恢复五个文档；用户已追认既有 commit 历史，后续提交仍按原协定执行。 |
+| `MINOR` | 运行验收 | Computer Use 运行时不可用，Codex 未能独立复核 DSH 的窗口截图；正常关闭仍只验证了进程终止，没有验证 UI 关闭按钮。 | 不阻塞代码验收，但保留为未独立验证项。 |
 
 **M0 结果：**
 
+代码骨架、构建、测试、capabilities 和最小 UI 已达到 M0 技术目标。现有 commit
+历史已由用户特别追认；Bundle Identifier 返工完成后复验通过。
+
 **返工或后续任务：**
+
+1. DSH 将 `src-tauri/tauri.conf.json` 的 `identifier` 改为 `com.qurner.reader`。
+2. DSH 检查代码或文档中不得继续出现 `com.qurner.app` 作为新配置值；历史任务报告中的旧值作为事实记录可以保留。
+3. DSH 重新运行完整 M0 检查与 `.app` 构建，确认 Tauri 不再产生 Bundle Identifier 警告。
+4. DSH 验证 `Info.plist` 的 `CFBundleIdentifier` 为 `com.qurner.reader`，应用可正常启动。
+5. DSH 不改动受保护文档，不创建 commit，填写第 12 节返工报告并将状态改为 `ready_for_review`。
+
+### 复验记录
+
+**复验日期：** 2026-11-14  
+**结论：** 通过
+
+- `npm run check`：通过；Biome 14 个文件无修复，Vitest 2/2 通过。
+- `npm run test:e2e`：通过；Playwright WebKit 1/1 通过。
+- `npm run build`：通过；31 个模块，生产构建成功。
+- `cargo fmt --all --check`、Clippy 和 `cargo test --workspace`：全部通过。
+- `npm run tauri build -- --bundles app`：通过，且构建日志不再出现 Bundle Identifier 警告。
+- Info.plist：`CFBundleIdentifier = com.qurner.reader`，应用名 Qurner，最低系统版本 14.0。
+- 二进制架构：arm64。
+- `open -n Qurner.app`：启动成功；`lsof` 未观察到 TCP/UDP 连接；测试后进程正常终止。
+- Git 历史仍只有用户特别批准的 `f6e4797` 和 `e310c07`，返工没有新增 commit。
+- 源码和新配置中不存在 `com.qurner.app`；旧值只保留在历史报告和 ADR 背景中。
+
+## 12. M0 返工报告
+
+> DeepSeek 开始返工后把顶部状态改为 `in_progress`，完成后填写本节并改为
+> `ready_for_review`。
+
+**完成摘要：**
+
+按 ADR-0001 与 Codex 返工意见完成 Bundle Identifier 变更：
+
+- `src-tauri/tauri.conf.json` 的 `identifier` 由 `com.qurner.app` 改为
+  `com.qurner.reader`；产品名、窗口标题与版本保持不变。
+- 代码与新配置中不再出现 `com.qurner.app`；仅 `TASK-M0.md` 第 10/11 节历史报告和
+  `ADR-0001` 的背景说明保留该旧值作为事实记录，未改写。
+- 重新执行 TASK-M0 第 9 节全部命令、`.app` 构建和两次启动验证（构建产物与开发模式）。
+- 构建日志中不再出现 Bundle Identifier 警告；`Info.plist` 的 `CFBundleIdentifier`
+  为 `com.qurner.reader`。
+
+**修改文件：**
+
+- `src-tauri/tauri.conf.json`（仅 `identifier` 字段）
+- `docs/tasks/TASK-M0.md`（顶部状态与本第 12 节返工报告；第 1–11 节未改动）
+
+未修改 SRS、SDS、DEVELOPMENT_PLAN、AI_COLLABORATION、ADR-0001、TEMPLATE 等受保护
+文档，也未创建 commit。
+
+**运行命令与结果：**
+
+| 命令 | 退出码 | 结果摘要 |
+|---|---:|---|
+| `rustup show` | 0 | active toolchain `1.100.0-aarch64-apple-darwin`，target `aarch64-apple-darwin` 已安装 |
+| `rustc --version` | 0 | `rustc 1.100.0 (0ef1bc386 2026-11-09)` |
+| `cargo --version` | 0 | `cargo 1.100.0 (3acc79c0c 2026-11-05)` |
+| `npm install` | 0 | 依赖已是最新（沙箱环境使用 `--cache /tmp/qurner-npm-cache`），锁文件未变 |
+| `npx playwright install webkit` | 0 | WebKit 已安装，命令确认后立即退出；首次普通权限运行无输出挂起，终止后以写缓存权限重跑并通过 |
+| `npm run check` | 0 | `tsc -b` 通过；Biome 检查 14 个文件无修复；Vitest 2/2 通过 |
+| `npm run test:e2e` | 0 | Playwright WebKit 1/1 通过（标题与空书库提示可见，无按钮） |
+| `npm run build` | 0 | 31 modules，生产构建成功 |
+| `cargo fmt --all --check` | 0 | 无格式差异 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 | 无 warning |
+| `cargo test --workspace` | 0 | 三个领域 crate 各 1 个 smoke test 通过，doc-tests 通过 |
+| `npm run tauri build -- --bundles app` | 0 | 构建成功；完整日志 grep 不到 `identifier` / `warning` 行，Bundle Identifier 警告已消失 |
+| `npm run tauri dev` | 0 | 编译并启动成功，日志确认 `Qurner 启动 version="0.1.0"`；SIGTERM 后进程退出、1420 端口释放 |
+
+**Bundle Identifier 验证：**
+
+- 配置：`src-tauri/tauri.conf.json` → `"identifier": "com.qurner.reader"`。
+- 构建产物：`Info.plist` 的 `CFBundleIdentifier` 为 `com.qurner.reader`；
+  `CFBundleName` 为 `Qurner`，`LSMinimumSystemVersion` 为 `14.0`，`lipo -archs` 为
+  `arm64`。
+- 警告：`npm run tauri build -- --bundles app` 的完整日志中无 identifier 警告或
+  warning 行。
+- 代码与配置扫描：`grep -rn "com\\.qurner\\.app"` 排除 Markdown 后无结果；旧值只存在于
+  TASK-M0 历史报告与 ADR-0001 的事实说明中。
+- 运行：`open -n Qurner.app` 启动成功，截图确认窗口标题为 `Qurner`、页面显示
+  `Qurner / 个人电子书阅读器` 与空书库占位；`lsof -p <pid>` 未观察到 TCP/UDP 连接。
+- 开发模式：`npm run tauri dev` 启动成功并输出领域 crate 链接日志。
+
+**构建产物路径：**
+
+`/Users/quzhuoyan/Desktop/qurner/target/release/bundle/macos/Qurner.app`
+
+（3.85 MiB，arm64，ad-hoc 签名，`CFBundleIdentifier = com.qurner.reader`；
+`target/` 仍被 `.gitignore` 排除，未提交。）
+
+**未验证项：**
+
+- System Events 读取窗口标题仍报权限违例，窗口与页面内容以 `screencapture` 截图为准。
+- 未使用抓包工具验证零出站请求，仅以 `lsof` 未观察到网络连接为证据。
+- 未在 macOS 14 实机验证，本机为 macOS 26.6 / arm64。
+- 「正常关闭窗口后进程退出」仍以 SIGTERM 验证，未用 UI 点击关闭按钮或 Cmd+Q。
+- 未验证从旧标识数据目录（`~/Library/*/com.qurner.app`）迁移或清理；ADR 明确 M0 旧
+  缓存不属于用户数据，不要求迁移。
+
+**风险与待决问题：**
+
+- 本次返工未创建 commit（按任务要求），工作区保留 `src-tauri/tauri.conf.json` 与
+  `TASK-M0.md` 的未提交修改，以及 Codex 对受保护文档的恢复改动。
+- `npm audit` 仍报告 3 个开发依赖漏洞（Vitest 3.2.7 / tinypool），仅影响开发工具链，
+  未擅自升级 major。
+- 应用若在 M1 之后再次修改 Bundle Identifier，需要新增 ADR 并处理数据目录迁移。
+- Tauri capabilities、CSP 与产品功能未在本次返工中改变。

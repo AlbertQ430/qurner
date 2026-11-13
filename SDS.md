@@ -1,11 +1,11 @@
 # Qurner 个人电子书阅读器软件设计说明书（SDS）
 
-**文档版本：** 0.2-draft  
+**文档版本：** 0.3-draft  
 **文档状态：** 架构草案，待确认后作为 MVP 实现基线  
 **适用需求：** `SRS.md` 0.3-draft  
 **目标平台：** macOS 14 及以上，Apple Silicon  
 **产品名称：** Qurner  
-**Bundle Identifier：** `com.qurner.app`
+**Bundle Identifier：** `com.qurner.reader`
 
 ---
 
@@ -29,28 +29,28 @@ MVP 不实现高亮、批注、TXT、PDF、收藏夹、文件重定位、备份�
 
 ## 2.1 核心决策
 
-| 领域            | 选型                                  | 决策理由                                                                                     |
-| --------------- | ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| 桌面框架        | Tauri 2.x stable                      | macOS 桌面端使用系统 WKWebView，安装包和内存开销低于 Electron；支持 CLI 构建和 Rust 单元测试 |
-| 后端语言        | Rust，Edition 2024                    | 文件、ZIP、哈希、SQLite 和解析逻辑有明确所有权与错误类型，便于稳定测试                       |
-| 前端语言        | TypeScript                            | 与 React 配合，桥接协议可用 Zod 做运行时校验                                                 |
-| UI 框架         | React 19                              | 书库、导入流程和阅读器控制界面适合组件化开发                                                 |
-| EPUB 渲染       | WKWebView iframe + 自研受控阅读脚本   | 保留原书 HTML/CSS，同时阻断书内脚本和远程请求                                                |
-| 阅读资源加载    | Tauri 自定义协议，从原始 ZIP 按需读取 | 不复制整本书，不向本地 HTTP 服务暴露文件                                                     |
-| 数据存储        | SQLite + `rusqlite`                   | 支持事务、索引、版本迁移和 1,000 本书规模，无云依赖                                          |
-| ZIP 读取        | Rust `zip` crate                      | 直接读取 EPUB 中央目录和单个资源，适合 100 MB 文件                                           |
-| XML 解析        | `quick-xml`                           | 解析 `container.xml`、OPF 和 NCX，不解析外部实体                                             |
-| HTML 重写与清洗 | `lol_html`                            | 注入阅读脚本和 CSP nonce，阻断脚本与非本地资源                                               |
-| 内容指纹        | SHA-256，Rust `sha2`                  | 与 SRS 的字节级判重规则一致，可流式计算                                                      |
-| 前端数据请求    | TanStack Query                        | 管理命令结果、缓存、失效和异步状态                                                           |
-| 阅读器临时状态  | Zustand                               | 管理当前章节、页状态、侧栏和瞬时 UI 状态                                                     |
-| 路由            | React Router                          | 区分书库、阅读器及未来的书籍详情                                                             |
-| 前端校验        | Zod                                   | 校验所有 Tauri 命令和 iframe 消息                                                            |
-| Rust 测试       | 标准测试框架 + `tempfile`             | 覆盖解析、存储、指纹和错误分支                                                               |
-| 前端测试        | Vitest + React Testing Library        | 组件和状态测试                                                                               |
-| Web 集成测试    | Playwright WebKit                     | 在真实 WebKit 语义下测试阅读脚本、分页和消息桥                                               |
-| 包管理          | npm，提交 `package-lock.json`         | 当前环境已安装，减少额外工具链                                                               |
-| Rust 依赖锁定   | 提交 `Cargo.lock`                     | 固定可复现的依赖版本                                                                         |
+| 领域 | 选型 | 决策理由 |
+|---|---|---|
+| 桌面框架 | Tauri 2.x stable | macOS 桌面端使用系统 WKWebView，安装包和内存开销低于 Electron；支持 CLI 构建和 Rust 单元测试 |
+| 后端语言 | Rust，Edition 2024 | 文件、ZIP、哈希、SQLite 和解析逻辑有明确所有权与错误类型，便于稳定测试 |
+| 前端语言 | TypeScript | 与 React 配合，桥接协议可用 Zod 做运行时校验 |
+| UI 框架 | React 19 | 书库、导入流程和阅读器控制界面适合组件化开发 |
+| EPUB 渲染 | WKWebView iframe + 自研受控阅读脚本 | 保留原书 HTML/CSS，同时阻断书内脚本和远程请求 |
+| 阅读资源加载 | Tauri 自定义协议，从原始 ZIP 按需读取 | 不复制整本书，不向本地 HTTP 服务暴露文件 |
+| 数据存储 | SQLite + `rusqlite` | 支持事务、索引、版本迁移和 1,000 本书规模，无云依赖 |
+| ZIP 读取 | Rust `zip` crate | 直接读取 EPUB 中央目录和单个资源，适合 100 MB 文件 |
+| XML 解析 | `quick-xml` | 解析 `container.xml`、OPF 和 NCX，不解析外部实体 |
+| HTML 重写与清洗 | `lol_html` | 注入阅读脚本和 CSP nonce，阻断脚本与非本地资源 |
+| 内容指纹 | SHA-256，Rust `sha2` | 与 SRS 的字节级判重规则一致，可流式计算 |
+| 前端数据请求 | TanStack Query | 管理命令结果、缓存、失效和异步状态 |
+| 阅读器临时状态 | Zustand | 管理当前章节、页状态、侧栏和瞬时 UI 状态 |
+| 路由 | React Router | 区分书库、阅读器及未来的书籍详情 |
+| 前端校验 | Zod | 校验所有 Tauri 命令和 iframe 消息 |
+| Rust 测试 | 标准测试框架 + `tempfile` | 覆盖解析、存储、指纹和错误分支 |
+| 前端测试 | Vitest + React Testing Library | 组件和状态测试 |
+| Web 集成测试 | Playwright WebKit | 在真实 WebKit 语义下测试阅读脚本、分页和消息桥 |
+| 包管理 | npm，提交 `package-lock.json` | 当前环境已安装，减少额外工具链 |
+| Rust 依赖锁定 | 提交 `Cargo.lock` | 固定可复现的依赖版本 |
 
 ## 2.2 未采用的方案
 
@@ -318,17 +318,17 @@ MVP 使用 WKWebView 原生 CSS 多栏实现分页：
 
 ```ts
 type ReaderLocator = {
-  version: 1;
-  spineIndex: number;
-  spineHref: string;
-  textOffset: number;
-  intraSpineProgression: number;
+  version: 1
+  spineIndex: number
+  spineHref: string
+  textOffset: number
+  intraSpineProgression: number
   quote: {
-    exact: string;
-    prefix: string;
-    suffix: string;
-  };
-};
+    exact: string
+    prefix: string
+    suffix: string
+  }
+}
 ```
 
 - `textOffset` 是从当前 XHTML 文档正文开头计算的规范化文本字符偏移。
@@ -370,11 +370,11 @@ globalProgress =
 ## 8.1 文件位置
 
 ```text
-~/Library/Application Support/com.qurner.app/
+~/Library/Application Support/com.qurner.reader/
 ├── reader.sqlite3
 └── logs/
 
-~/Library/Caches/com.qurner.app/
+~/Library/Caches/com.qurner.reader/
 └── covers/
     └── <fingerprint>.jpg
 ```
@@ -477,11 +477,11 @@ CREATE INDEX idx_bookmarks_book_created ON bookmarks(book_id, created_at);
 ## 9.1 稳定枚举
 
 ```ts
-type BookSort = "title" | "author" | "importedAt";
-type SortDirection = "asc" | "desc";
-type ReaderMode = "paged" | "scrolling";
-type ReaderTheme = "day" | "night";
-type ImportStatus = "imported" | "reactivated" | "duplicate" | "failed";
+type BookSort = 'title' | 'author' | 'importedAt'
+type SortDirection = 'asc' | 'desc'
+type ReaderMode = 'paged' | 'scrolling'
+type ReaderTheme = 'day' | 'night'
+type ImportStatus = 'imported' | 'reactivated' | 'duplicate' | 'failed'
 ```
 
 所有命令错误使用：
@@ -489,23 +489,23 @@ type ImportStatus = "imported" | "reactivated" | "duplicate" | "failed";
 ```ts
 type AppError = {
   code:
-    | "E_INVALID_INPUT"
-    | "E_FILE_NOT_FOUND"
-    | "E_FILE_UNREADABLE"
-    | "E_EPUB_INVALID"
-    | "E_EPUB_ENCRYPTED"
-    | "E_EPUB_FIXED_LAYOUT"
-    | "E_EPUB_VERTICAL"
-    | "E_EPUB_SCRIPT_REQUIRED"
-    | "E_BOOK_NOT_FOUND"
-    | "E_BOOK_UNAVAILABLE"
-    | "E_SOURCE_CHANGED"
-    | "E_SESSION_INVALID"
-    | "E_STORAGE"
-    | "E_INTERNAL";
-  message: string;
-  details?: Record<string, string | number | boolean>;
-};
+    | 'E_INVALID_INPUT'
+    | 'E_FILE_NOT_FOUND'
+    | 'E_FILE_UNREADABLE'
+    | 'E_EPUB_INVALID'
+    | 'E_EPUB_ENCRYPTED'
+    | 'E_EPUB_FIXED_LAYOUT'
+    | 'E_EPUB_VERTICAL'
+    | 'E_EPUB_SCRIPT_REQUIRED'
+    | 'E_BOOK_NOT_FOUND'
+    | 'E_BOOK_UNAVAILABLE'
+    | 'E_SOURCE_CHANGED'
+    | 'E_SESSION_INVALID'
+    | 'E_STORAGE'
+    | 'E_INTERNAL'
+  message: string
+  details?: Record<string, string | number | boolean>
+}
 ```
 
 前端只根据 `code` 做逻辑分支，`message` 仅用于诊断和兜底显示。
@@ -548,50 +548,50 @@ deleteBookmark(bookId: string, bookmarkId: string): Promise<void>
 
 ```ts
 type BookSummary = {
-  id: string;
-  title: string;
-  author: string;
-  coverUrl: string | null;
-  importedAt: string;
-  lastOpenedAt: string | null;
-};
+  id: string
+  title: string
+  author: string
+  coverUrl: string | null
+  importedAt: string
+  lastOpenedAt: string | null
+}
 
 type ImportItemResult = {
-  sourceName: string;
-  status: ImportStatus;
-  bookId?: string;
-  error?: AppError;
-};
+  sourceName: string
+  status: ImportStatus
+  bookId?: string
+  error?: AppError
+}
 
 type ImportBatchResult = {
-  jobId: string;
-  items: ImportItemResult[];
-};
+  jobId: string
+  items: ImportItemResult[]
+}
 
 type TocNode = {
-  id: string;
-  label: string;
-  spineIndex: number;
-  fragment?: string;
-  children: TocNode[];
-};
+  id: string
+  label: string
+  spineIndex: number
+  fragment?: string
+  children: TocNode[]
+}
 
 type ReaderSession = {
-  sessionId: string;
-  bookId: string;
-  title: string;
-  frameUrl: string;
-  toc: TocNode[];
-  initialLocator: ReaderLocator | null;
-  initialProgression: number;
-  settings: ReaderSettings;
-};
+  sessionId: string
+  bookId: string
+  title: string
+  frameUrl: string
+  toc: TocNode[]
+  initialLocator: ReaderLocator | null
+  initialProgression: number
+  settings: ReaderSettings
+}
 
 type ReaderSettings = {
-  mode: ReaderMode;
-  fontScale: number;
-  theme: ReaderTheme;
-};
+  mode: ReaderMode
+  fontScale: number
+  theme: ReaderTheme
+}
 ```
 
 ## 9.4 iframe 消息
@@ -792,16 +792,16 @@ npm run tauri build
 
 # 15. 风险与控制
 
-| 风险                               | 影响                             | 控制措施                                                                          |
-| ---------------------------------- | -------------------------------- | --------------------------------------------------------------------------------- |
+| 风险 | 影响 | 控制措施 |
+|---|---|---|
 | CSS 多栏分页在 WebKit 中的边界行为 | 可能页数错误、横向溢出或锚点跳动 | M3 先做独立分页 spike；Playwright WebKit 自动验证；不通过则暂停上层功能并重新决策 |
-| 原书 CSS 与阅读布局样式冲突        | 排版被破坏或无法翻页             | 布局样式使用独立命名、单一注入点，并在真实书籍夹具上视觉回归                      |
-| iframe CSP 与可信脚本注入失败      | 阅读脚本无法执行或书内脚本泄漏   | 每响应生成 nonce；禁止 inline/event/remote；加入安全回归测试                      |
-| 文本 Locator 在复杂 DOM 中偏移     | 进度或书签错位                   | 同时保存文本偏移和上下文；字号、窗口、主题、模式均作为回归测试维度                |
-| 100 MB EPUB 解压占用过高           | 导入失败或内存峰值               | 单条资源上限、并发上限 2、按需读取、性能夹具                                      |
-| Rust/Tauri 工具链未安装            | 无法开始实际开发                 | 初始化里程碑先安装 Rust stable 并完成空应用构建                                   |
-| Unicode 排序与搜索差异             | 中英文书库顺序不稳定             | 导入时生成统一 lower-case 搜索键和 collation 排序键                               |
-| 依赖升级导致命令或打包回归         | 已有功能失效                     | 锁文件固定版本；major 升级需要 ADR 和全量验收                                     |
+| 原书 CSS 与阅读布局样式冲突 | 排版被破坏或无法翻页 | 布局样式使用独立命名、单一注入点，并在真实书籍夹具上视觉回归 |
+| iframe CSP 与可信脚本注入失败 | 阅读脚本无法执行或书内脚本泄漏 | 每响应生成 nonce；禁止 inline/event/remote；加入安全回归测试 |
+| 文本 Locator 在复杂 DOM 中偏移 | 进度或书签错位 | 同时保存文本偏移和上下文；字号、窗口、主题、模式均作为回归测试维度 |
+| 100 MB EPUB 解压占用过高 | 导入失败或内存峰值 | 单条资源上限、并发上限 2、按需读取、性能夹具 |
+| Rust/Tauri 工具链未安装 | 无法开始实际开发 | 初始化里程碑先安装 Rust stable 并完成空应用构建 |
+| Unicode 排序与搜索差异 | 中英文书库顺序不稳定 | 导入时生成统一 lower-case 搜索键和 collation 排序键 |
+| 依赖升级导致命令或打包回归 | 已有功能失效 | 锁文件固定版本；major 升级需要 ADR 和全量验收 |
 
 任何一项控制措施失败，都必须记录 ADR；不得在 DeepSeek 的实现中静默更换核心框架、阅读引擎或数据模式。
 
@@ -821,7 +821,8 @@ npm run tauri build
 
 # 17. 版本记录
 
-| 版本      | 日期       | 状态     | 说明                                                                                            |
-| --------- | ---------- | -------- | ----------------------------------------------------------------------------------------------- |
+| 版本 | 日期 | 状态 | 说明 |
+|---|---|---|---|
 | 0.1-draft | 2026-11-13 | 历史草案 | 确定 Tauri/React/Rust/SQLite 架构、模块边界、数据模式、命令契约、EPUB iframe 安全模型和测试策略 |
-| 0.2-draft | 2026-11-13 | 当前草案 | 产品正式定名 Qurner，更新应用名、Bundle Identifier、数据目录和 AI 协作文件位置                  |
+| 0.2-draft | 2026-11-13 | 历史草案 | 产品正式定名 Qurner，更新应用名、Bundle Identifier、数据目录和 AI 协作文件位置 |
+| 0.3-draft | 2026-11-14 | 当前草案 | 根据 Tauri 校验警告，将 Bundle Identifier 和数据目录标识改为 `com.qurner.reader` |
