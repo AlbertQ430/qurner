@@ -275,9 +275,13 @@ npm run tauri dev
 - 应用启动：`npm run tauri dev` 启动成功，Vite 监听 1420，`target/debug/qurner` 进程
   运行；日志确认 `Qurner 启动 version="0.1.0"` 与 `领域 crate 已链接`（epub-core /
   storage-core / reader-model）。构建后的 `Qurner.app` 二进制也能启动并输出同样日志。
-- 窗口标题：`tauri.conf.json` 中 `app.windows[0].title` 为 `Qurner`，构建产物
-  `Info.plist` 的 `CFBundleName` / `CFBundleDisplayName` 均为 `Qurner`、
-  `CFBundleIdentifier` 为 `com.qurner.app`、`LSMinimumSystemVersion` 为 `14.0`。
+- 窗口标题与可见内容：在用户授予屏幕录制授权后，用 `open` 通过 LaunchServices 启动
+  构建的 `Qurner.app`，并 `screencapture` 截图确认：菜单栏应用名为 `Qurner`，窗口
+  标题栏为 `Qurner`，页面显示 `Qurner`、`个人电子书阅读器`、`书库还是空的` 与
+  `稍后可以通过导入添加书籍。`（系统深色外观）。System Events 读取窗口标题仍报
+  权限违例，故以截图为准。`Info.plist` 的 `CFBundleName` / `CFBundleDisplayName`
+  均为 `Qurner`、`CFBundleIdentifier` 为 `com.qurner.app`、`LSMinimumSystemVersion`
+  为 `14.0`。
 - 页面内容：Playwright WebKit 冒烟测试验证页面标题 `Qurner`、一级标题 `Qurner`、
   「书库还是空的」与「稍后可以通过导入添加书籍。」可见，且不存在按钮。
 - 错误边界：Vitest 测试验证子组件抛错时显示中文错误占位（`role="alert"`），而非白屏。
@@ -295,15 +299,12 @@ npm run tauri dev
 
 **未验证项：**
 
-- 当前会话没有屏幕录制与辅助功能授权，`screencapture` 与 System Events 均被系统拒绝，
-  因此未能直接读取开发窗口和 `Qurner.app` 的可见窗口标题与画面；窗口标题通过配置与
-  `Info.plist` 验证，页面内容通过 Playwright WebKit 渲染同一前端验证。
-- 未通过 LaunchServices 双击启动 `.app`，而是直接执行 `Qurner.app/Contents/MacOS/qurner`
-  验证启动；沙箱环境阻止 WebKit 写 `~/Library/WebKit` 缓存目录，日志中出现相关
-  NSCocoaError，属会话文件沙箱限制，未在无沙箱的正常用户环境复核。
 - 未使用网络监测工具验证运行时零出站请求。
 - 未在 macOS 14 实机验证，仅在本机 macOS 26.6 / arm64 上构建和运行。
 - 「正常关闭窗口后进程退出」以 SIGTERM 结束进程验证，未用 UI 点击关闭按钮或 Cmd+Q。
+- 直接执行 `Qurner.app/Contents/MacOS/qurner` 时，会话文件沙箱阻止 WebKit 写
+  `~/Library/WebKit` 缓存目录并产生 NSCocoaError 日志；通过 `open` 启动时截图显示界面
+  正常，但该沙箱限制未在无沙箱的普通用户环境复核。
 
 **风险与待决问题：**
 
