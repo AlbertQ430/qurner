@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/epub-core",
+    "crates/storage-core",
+    "crates/reader-model",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+epub-core = { path = "crates/epub-core" }
+storage-core = { path = "crates/storage-core" }
+reader-model = { path = "crates/reader-model" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

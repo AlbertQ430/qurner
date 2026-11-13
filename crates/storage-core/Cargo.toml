@@ -1,0 +1,10 @@
+[package]
+name = "storage-core"
+description = "Qurner SQLite 存储与 Repository 核心（M0 仅建立 crate 边界）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

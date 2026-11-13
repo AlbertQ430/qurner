@@ -1,0 +1,10 @@
+[package]
+name = "reader-model"
+description = "Qurner Locator、进度与阅读设置模型（M0 仅建立 crate 边界）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

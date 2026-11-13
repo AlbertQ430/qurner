@@ -1,0 +1,23 @@
+[package]
+name = "qurner"
+description = "Qurner 个人电子书阅读器桌面端"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "qurner_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+epub-core.workspace = true
+storage-core.workspace = true
+reader-model.workspace = true
