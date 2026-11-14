@@ -78,7 +78,7 @@ fn maps_metadata_manifest_and_spine_for_six_fixtures() {
             }
             FixtureKind::CssAndImage => {
                 assert_eq!(book.metadata.title.as_deref(), Some("图文混排示例"));
-                assert_eq!(book.manifest.len(), 4);
+                assert_eq!(book.manifest.len(), 5);
                 assert!(
                     book.manifest
                         .values()

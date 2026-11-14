@@ -1,6 +1,6 @@
 # Qurner 个人电子书阅读器软件设计说明书（SDS）
 
-**文档版本：** 0.8-draft  
+**文档版本：** 0.11-draft  
 **文档状态：** 架构草案，待确认后作为 MVP 实现基线  
 **适用需求：** `SRS.md` 0.3-draft  
 **目标平台：** macOS 14 及以上，Apple Silicon  
@@ -260,6 +260,22 @@ iframe 使用 `epub://<session-token>/<resource-path>` 地址。Tauri 自定义�
 
 iframe 只允许可信阅读脚本通过 nonce 执行。原书 `<script>`、内联事件、`javascript:` URL 和远程资源均被禁止。
 
+会话与协议约束：
+
+- `session-token` 是 128 位随机会话令牌，作为 URL 第一段；它与数据库书籍 ID、文件路径
+  和个人数据无关，不能推算或跨应用重启复用。
+- 会话保存在进程内注册表中，关闭阅读器或应用退出时失效；未知、已关闭或跨会话请求
+  不暴露目标书籍是否存在。
+- 协议路径只做一次严格百分号解码，再交给 `ResourcePath` 规范化和校验。解码后出现
+  `..`、绝对路径、反斜杠、NUL 或无法映射到该会话 manifest 的路径时必须拒绝。
+- 协议只能读取该会话关联原始 EPUB 中 manifest 声明的资源，不提供目录列表、
+  `META-INF/` 或任意归档条目读取能力。
+- `__qurner/` 保留给可信阅读脚本及控制资源，不由书籍 manifest 提供内容。
+
+可信阅读脚本只通过 `epub://<session-token>/__qurner/reader-engine.js` 提供，响应内容
+必须来自应用构建产物，不读取 EPUB 归档。每个 HTML 响应生成新的 CSP 随机 nonce，并在
+正文结束前注入唯一可信 `<script>`；nonce 不写入日志，也不跨响应复用。
+
 书库封面使用独立 `cover://<fingerprint>.jpg` 协议。处理器只接受数据库中存在且具有封面缓存键的指纹，不接收任意文件路径。主应用 CSP 只额外允许 `cover:` 图片和 `epub:` iframe。
 
 ## 6.2 资源响应
@@ -275,12 +291,22 @@ font-src 'self' data: epub:
 connect-src 'none'
 frame-src 'none'
 object-src 'none'
+base-uri 'none'
+form-action 'none'
 ```
 
 - `style-src` 保留 `'unsafe-inline'` 是为了兼容常见 EPUB 内嵌样式；脚本不使用 `'unsafe-inline'`。
 - `http:` 和 `https:` 不在允许列表内。
 - 外部链接在 MVP 不打开；V2.x 由明确用户动作交给系统浏览器。
 - 协议处理器不得读取会话书籍以外的任意文件。
+- HTML 响应在运行时再次移除原有脚本、事件属性、`javascript:` URL、嵌入框架、
+  `meta refresh` 和会改变相对地址解析的 `<base>`。外部链接保留可见文字，但不得在
+  阅读 iframe 内导航。
+
+成功响应使用 manifest 声明的 MIME 类型，并至少包含
+`X-Content-Type-Options: nosniff` 和 `Cache-Control: no-store`。未知或已失效会话、
+未声明资源与不安全路径统一返回不泄露内部细节的 404；超过单资源 200 MB 上限返回 413；
+归档读取失败返回稳定的 500。响应和日志不得包含用户文件绝对路径、书籍正文或会话令牌。
 
 ## 6.3 阅读脚本
 
@@ -305,6 +331,10 @@ MVP 使用 WKWebView 原生 CSS 多栏实现分页：
 
 分页类名和布局属性必须由阅读脚本独立命名，避免与原书 CSS 冲突。
 
+M3 spike 的页步长定义为 `viewportWidth + gap`。页数由实际最大横向滚动量计算，不使用
+内容总宽简单向上取整，以免生成只有空白空间的尾页。当前页索引按最近页步长取整并限制在
+`0..pageCount-1`；翻页后必须校验页面内存在可见正文或图片，不允许连续空白页。
+
 ## 6.5 连续滚动模式
 
 - 正文使用纵向文档滚动。
@@ -312,6 +342,18 @@ MVP 使用 WKWebView 原生 CSS 多栏实现分页：
 - 上、下方向键使用 WebKit 默认行滚动。
 - 到达章节底部后自动加载下一 spine 项顶部；返回章节顶部时加载上一 spine 项底部。
 - 章节切换必须先恢复对应锚点，再启用用户输入。
+
+连续滚动模式不报告有意义的页码，状态值固定为 `pageIndex=0, pageCount=0`。左右方向键
+由阅读脚本滚动约一个视口高度，上下方向键保留 WebKit 默认行滚动。到达章节边界时发送一次
+`spine-request`；在位置离开边界前重复输入不得重复发送同一方向的请求。
+
+### 6.5.1 模式切换与布局恢复
+
+- 切换分页/滚动、窗口尺寸变化或字体加载完成前先捕获 Locator。
+- 布局完成后按 `spineHref`、`textOffset` 和 quote 恢复；恢复成功前暂不处理翻页输入。
+- 精确偏移处 quote 不匹配时，在章节规范化文本中搜索 exact/prefix/suffix；多处匹配选择
+  `intraSpineProgression` 最近者。
+- 无匹配时回到本章开头，并发送一次可恢复错误；不得跳到其他章节或全书开头。
 
 ## 6.6 样式覆盖
 
@@ -346,8 +388,13 @@ type ReaderLocator = {
 }
 ```
 
-- `textOffset` 是从当前 XHTML 文档正文开头计算的规范化文本字符偏移。
-- `quote.exact` 长度为 32 至 128 个字符；`prefix`、`suffix` 各最多 32 个字符。
+- `spineIndex` 是 0-based 阅读顺序；`spineHref` 是相对 EPUB 根目录的非空安全路径。
+- `textOffset` 是从当前 XHTML `body` 开头按 DOM 顺序拼接文本后计算的 UTF-16 code unit
+  偏移，与浏览器 `Range` 一致。CR、LF、CRLF 统一为 LF；连续空白不折叠，以免破坏
+  DOM 源偏移映射。
+- `quote.exact` 目标长度为 32 个 UTF-16 单元，最多 128；章节或锚点附近不足 32 时使用
+  实际可用文本，全空章节可为空字符串。`prefix`、`suffix` 各最多 32 个 UTF-16 单元。
+- `intraSpineProgression` 为该偏移除以本章规范化文本总长度，范围为 0–1；空章节为 0。
 - 不保存屏幕坐标、CSS 页码或窗口尺寸。
 - 书签使用相同 Locator，并另存可选文本摘录。
 
@@ -642,6 +689,66 @@ iframe 到父窗口：
 
 所有消息包含 `protocolVersion`、`sessionId` 和随机会话令牌。父窗口校验 `event.source === iframe.contentWindow`，iframe 也校验消息来源。消息 payload 用 Zod 校验。
 
+消息统一信封：
+
+```ts
+type ReaderMessage = {
+  protocolVersion: 1
+  sessionId: string
+  sessionToken: string
+  type:
+    | 'reader:init'
+    | 'reader:ready'
+    | 'reader:go-to'
+    | 'reader:turn-page'
+    | 'reader:update-settings'
+    | 'reader:capture-locator'
+    | 'reader:location-changed'
+    | 'reader:page-changed'
+    | 'reader:spine-request'
+    | 'reader:error'
+  payload: Record<string, unknown>
+}
+```
+
+所有消息使用严格 Zod schema，拒绝未知字段、错误协议版本、错误会话 ID/令牌和不适用的
+payload。M3C 固定以下 payload：
+
+```ts
+reader:init -> {
+  mode: 'paged' | 'scrolling'
+  initialLocator: ReaderLocator | null
+}
+reader:ready -> { engineVersion: string }
+reader:go-to -> { locator: ReaderLocator }
+reader:turn-page -> { direction: 'prev' | 'next' }
+reader:update-settings -> { mode: 'paged' | 'scrolling' }
+reader:capture-locator -> {}
+reader:location-changed -> {
+  reason: 'init' | 'turn' | 'scroll' | 'layout' | 'go-to' | 'capture'
+  locator: ReaderLocator
+  mode: 'paged' | 'scrolling'
+  pageIndex: number
+  pageCount: number
+  atStart: boolean
+  atEnd: boolean
+}
+reader:page-changed -> {
+  pageIndex: number
+  pageCount: number
+  atStart: boolean
+  atEnd: boolean
+}
+reader:spine-request -> {
+  direction: 'prev' | 'next'
+  locator: ReaderLocator
+}
+```
+
+`reader:ready` 只能在初次布局和初始 Locator 恢复完成后发送。`reader:capture-locator`
+通过一次 `reader:location-changed(reason="capture")` 响应。窗口、模式或字号布局完成的
+位置事件使用 `reason="layout"`。
+
 ---
 
 # 10. 关键运行流程
@@ -858,4 +965,7 @@ npm run tauri build
 | 0.5-draft | 2026-11-14 | 历史草案 | 采用固定版本 `rbook 0.7.13` 薄适配层，并保留独立的流式 ZIP 安全预检 |
 | 0.6-draft | 2026-11-14 | 历史草案 | 新增不依赖 Tauri 的 `library-core` 应用用例层，隔离导入/书库编排与 IPC |
 | 0.7-draft | 2026-11-14 | 历史草案 | 使用 `icu_collator 2.4.0` compiled data 替代不可用的 `unicode-collation` |
-| 0.8-draft | 2026-11-14 | 当前草案 | 明确导入进度事件载荷、逐本顺序和跨任务 CPU 导入并发上限 |
+| 0.8-draft | 2026-11-14 | 历史草案 | 明确导入进度事件载荷、逐本顺序和跨任务 CPU 导入并发上限 |
+| 0.9-draft | 2026-11-14 | 历史草案 | 固定 EPUB 会话令牌、路径校验、manifest 白名单和协议响应边界 |
+| 0.10-draft | 2026-11-14 | 历史草案 | 固定 CSP nonce、可信脚本入口、HTML 防护和 iframe 消息信封 |
+| 0.11-draft | 2026-11-14 | 当前草案 | 固定 Locator 偏移语义、分页页步长、模式切换和 M3C iframe payload |

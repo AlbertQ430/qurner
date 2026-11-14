@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! EPUB 测试夹具工厂。
 //!
 //! 在临时目录生成最小、有效、损坏和恶意的合成 EPUB，供 M1B–M1D 解析器测试复用。
@@ -5,7 +6,38 @@
 
 use std::path::{Path, PathBuf};
 
-use tempfile::TempDir;
+use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// 夹具专用临时目录（不依赖外部 crate）。
+struct FixtureDir {
+    path: PathBuf,
+}
+
+impl FixtureDir {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "qurner-fixture-{}-{}",
+            std::process::id(),
+            FIXTURE_COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("应能创建临时目录");
+        Self { path }
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for FixtureDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
 
 use super::zip_writer::{ZipEntry, build_zip};
 
@@ -121,6 +153,7 @@ const OPF3_CSS_IMAGE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="style" href="style.css" media-type="text/css"/>
     <item id="cover-image" href="cover.png" media-type="image/png" properties="cover-image"/>
+    <item id="font" href="font.ttf" media-type="font/ttf"/>
     <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
   <spine>
@@ -152,6 +185,11 @@ const OPF3_BILINGUAL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 
 const STYLE_CSS: &str = "body { font-family: serif; }\np { text-indent: 2em; }\n";
 
+const FONT_TTF: &[u8] = &[
+    0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+];
+
 const COVER_PNG: &[u8] = &[
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
     0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
@@ -162,7 +200,7 @@ const COVER_PNG: &[u8] = &[
 
 /// 生成后的临时 EPUB 文件；持有 `TempDir`，drop 时自动清理。
 pub struct Fixture {
-    dir: TempDir,
+    dir: FixtureDir,
     path: PathBuf,
 }
 
@@ -308,6 +346,7 @@ impl FixtureKind {
                     ),
                     entry("OEBPS/style.css", STYLE_CSS),
                     ZipEntry::new("OEBPS/cover.png", COVER_PNG.to_vec()),
+                    ZipEntry::new("OEBPS/font.ttf", FONT_TTF.to_vec()),
                     entry(
                         "OEBPS/chapter1.xhtml",
                         chapter("<p>带样式的正文。</p><img src=\"cover.png\" alt=\"封面\"/>"),
@@ -381,7 +420,7 @@ fn write_fixture(filename: &str, body: Vec<ZipEntry>) -> Fixture {
     entries.push(ZipEntry::new("mimetype", MIMETYPE));
     entries.extend(body);
 
-    let dir = TempDir::new().expect("应能创建临时目录");
+    let dir = FixtureDir::new();
     let path = dir.path().join(filename);
     std::fs::write(&path, build_zip(&entries)).expect("应能写入夹具文件");
     Fixture { dir, path }

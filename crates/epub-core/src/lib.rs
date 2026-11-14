@@ -10,6 +10,7 @@ mod encryption;
 mod fingerprint;
 mod parse;
 mod precheck;
+mod resource;
 
 pub mod error;
 pub mod model;
@@ -23,6 +24,9 @@ pub use model::{
 };
 pub use parse::parse_epub;
 pub use path::{ResourcePath, ResourcePathError};
+pub use resource::{
+    MAX_RESOURCE_BYTES, ResourceReadError, read_resource, read_resource_from_reader,
+};
 
 /// crate 名称，用于冒烟测试确认 workspace 能编译并测试本包。
 pub const CRATE_NAME: &str = "epub-core";

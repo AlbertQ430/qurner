@@ -6,7 +6,11 @@
 pub mod commands;
 pub mod dto;
 pub mod error;
+pub mod protocol;
+pub mod session;
 pub mod state;
+
+use std::sync::Arc;
 
 pub use error::{AppError, AppErrorCode};
 
@@ -29,34 +33,40 @@ pub fn run() {
 }
 
 fn build_app() -> tauri::Builder<tauri::Wry> {
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
+    let sessions = Arc::new(session::SessionRegistry::new());
+    let builder = protocol::register(
+        tauri::Builder::default().invoke_handler(tauri::generate_handler![
             commands::start_import,
             commands::list_books,
             commands::soft_remove_book,
-        ])
-        .setup(|app| {
-            let state = match app.path().app_data_dir() {
-                Ok(directory) => state::initialize_state(&directory),
-                Err(_) => {
-                    tracing::error!(
-                        stage = "app_data_dir",
-                        code = AppErrorCode::Storage.as_str(),
-                        "应用数据目录解析失败"
-                    );
-                    state::AppState::failed(AppError::storage())
-                }
-            };
-            app.manage(state);
-            tracing::info!(
-                epub_core = epub_core::CRATE_NAME,
-                storage_core = storage_core::CRATE_NAME,
-                reader_model = reader_model::CRATE_NAME,
-                library_core = library_core::CRATE_NAME,
-                "领域 crate 已链接"
-            );
-            Ok(())
-        })
+        ]),
+        Arc::clone(&sessions),
+    );
+
+    builder.setup(move |app| {
+        let state = match app.path().app_data_dir() {
+            Ok(directory) => {
+                state::initialize_state_with_sessions(&directory, Arc::clone(&sessions))
+            }
+            Err(_) => {
+                tracing::error!(
+                    stage = "app_data_dir",
+                    code = AppErrorCode::Storage.as_str(),
+                    "应用数据目录解析失败"
+                );
+                state::AppState::failed_with_sessions(AppError::storage(), Arc::clone(&sessions))
+            }
+        };
+        app.manage(state);
+        tracing::info!(
+            epub_core = epub_core::CRATE_NAME,
+            storage_core = storage_core::CRATE_NAME,
+            reader_model = reader_model::CRATE_NAME,
+            library_core = library_core::CRATE_NAME,
+            "领域 crate 已链接"
+        );
+        Ok(())
+    })
 }
 
 fn init_tracing() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -7,6 +7,7 @@ use library_core::LibraryService;
 use storage_core::StorageService;
 
 use crate::error::AppError;
+use crate::session::SessionRegistry;
 
 /// 限制同时执行的导入 job 数；超出的 job 在阻塞任务中排队。
 pub struct JobScheduler {
@@ -74,22 +75,35 @@ impl Drop for JobSchedulerGuard {
 pub struct AppState {
     library: Result<Arc<LibraryService>, AppError>,
     scheduler: Arc<JobScheduler>,
+    sessions: Arc<SessionRegistry>,
 }
 
 impl AppState {
     #[must_use]
     pub fn ready(library: LibraryService) -> Self {
+        Self::ready_with_sessions(library, Arc::new(SessionRegistry::new()))
+    }
+
+    #[must_use]
+    pub fn ready_with_sessions(library: LibraryService, sessions: Arc<SessionRegistry>) -> Self {
         Self {
             library: Ok(Arc::new(library)),
             scheduler: Arc::new(JobScheduler::new(2)),
+            sessions,
         }
     }
 
     #[must_use]
     pub fn failed(error: AppError) -> Self {
+        Self::failed_with_sessions(error, Arc::new(SessionRegistry::new()))
+    }
+
+    #[must_use]
+    pub fn failed_with_sessions(error: AppError, sessions: Arc<SessionRegistry>) -> Self {
         Self {
             library: Err(error),
             scheduler: Arc::new(JobScheduler::new(2)),
+            sessions,
         }
     }
 
@@ -102,6 +116,12 @@ impl AppState {
     pub fn scheduler(&self) -> Arc<JobScheduler> {
         Arc::clone(&self.scheduler)
     }
+
+    /// 协议注册表与服务共享的阅读会话注册表。
+    #[must_use]
+    pub fn sessions(&self) -> Arc<SessionRegistry> {
+        Arc::clone(&self.sessions)
+    }
 }
 
 /// 在给定应用数据目录创建数据库并初始化服务。
@@ -109,6 +129,15 @@ impl AppState {
 /// 日志只记录阶段与错误类别，不记录绝对路径。
 #[must_use]
 pub fn initialize_state(app_data_dir: &Path) -> AppState {
+    initialize_state_with_sessions(app_data_dir, Arc::new(SessionRegistry::new()))
+}
+
+/// 与 [`initialize_state`] 相同，但使用给定会话注册表（协议注册共享）。
+#[must_use]
+pub fn initialize_state_with_sessions(
+    app_data_dir: &Path,
+    sessions: Arc<SessionRegistry>,
+) -> AppState {
     if let Err(error) = std::fs::create_dir_all(app_data_dir) {
         tracing::error!(
             stage = "create_app_data_dir",
@@ -116,19 +145,19 @@ pub fn initialize_state(app_data_dir: &Path) -> AppState {
             code = AppError::storage().code.as_str(),
             "应用数据目录创建失败"
         );
-        return AppState::failed(AppError::storage());
+        return AppState::failed_with_sessions(AppError::storage(), sessions);
     }
 
     let database_path = app_data_dir.join("reader.sqlite3");
     match StorageService::open(&database_path) {
-        Ok(storage) => AppState::ready(LibraryService::new(storage)),
+        Ok(storage) => AppState::ready_with_sessions(LibraryService::new(storage), sessions),
         Err(_) => {
             tracing::error!(
                 stage = "open_storage",
                 code = AppError::storage().code.as_str(),
                 "存储初始化失败"
             );
-            AppState::failed(AppError::storage())
+            AppState::failed_with_sessions(AppError::storage(), sessions)
         }
     }
 }

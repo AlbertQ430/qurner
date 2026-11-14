@@ -23,6 +23,7 @@ storage-core.workspace = true
 reader-model.workspace = true
 library-core.workspace = true
 uuid.workspace = true
+lol_html.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 
