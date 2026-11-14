@@ -18,6 +18,15 @@ publish = false
 epub-core = { path = "crates/epub-core" }
 storage-core = { path = "crates/storage-core" }
 reader-model = { path = "crates/reader-model" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
+rbook = { version = "=0.7.13", default-features = false, features = ["threadsafe"] }
+quick-xml = "0.42"
+lol_html = "3"
+sha2 = "0.10"
 
 [profile.release]
 codegen-units = 1

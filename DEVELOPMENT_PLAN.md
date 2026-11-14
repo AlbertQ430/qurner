@@ -1,6 +1,6 @@
 # Qurner MVP 开发计划
 
-**文档版本：** 0.5-draft  
+**文档版本：** 0.18-draft  
 **适用需求：** `SRS.md` 0.3-draft  
 **适用设计：** `SDS.md` 0.3-draft  
 **目标：** 交付可在 macOS 14+ Apple Silicon 本地运行的 MVP
@@ -130,7 +130,7 @@ npm run tauri dev
 
 ### 交付
 
-- `generate-fixtures.ts` 生成最小 EPUB2、EPUB3、嵌套目录、中英文、封面缺失、CSS、图片、损坏文件和超限 ZIP。
+- Rust 测试支持代码生成最小 EPUB2、EPUB3、嵌套目录、中英文、封面缺失、CSS、图片、损坏文件和超限 ZIP。
 - 流式 SHA-256 指纹。
 - ZIP 安全打开与路径规范化。
 - `container.xml`、OPF、manifest、spine、metadata 和目录解析。
@@ -153,6 +153,21 @@ npm run tauri dev
 - EPUB Core 不依赖 Tauri 即可通过 `cargo test -p epub-core`。
 - 所有夹具均得到预期结果。
 - Codex 审核确认解析器没有执行书内脚本或访问远程资源。
+
+### 任务拆分
+
+| 任务 | 内容 | 状态 |
+|---|---|---|
+| `TASK-M1A` | EPUB 领域模型、稳定错误类型与 Rust 夹具工厂 | `accepted` |
+| `TASK-M1P` | 现有 Rust EPUB 解析器复用 spike；按 ADR 决定 M1B 路线 | `accepted` |
+| `TASK-M1B` | 流式 ZIP 预检、rbook 适配、metadata、manifest 和 spine | `accepted` |
+| `TASK-M1C` | EPUB2/3 目录、封面、资源路径和章节权重 | `accepted` |
+| `TASK-M1D` | 流式内容指纹与源文件完整性 | `accepted` |
+| `TASK-M1E` | 固定版式、竖排、脚本和远程资源检测 | `accepted` |
+| `TASK-M1F` | M1 集成、性能与真实 EPUB 验收 | `accepted` |
+
+解析器和渲染器的候选工具、许可证与采用建议见
+`docs/research/EPUB_TOOLING_SURVEY.md`。M1P 通过 ADR 后才会调整 M1B 实现路线。
 
 ## M2：存储、导入服务与书库查询
 
@@ -388,7 +403,7 @@ npm run tauri build
 
 # 8. 当前执行状态
 
-用户已于 2026-11-14 确认开始 M0，并将仓库目录改为 `qurner`。
+用户已于 2026-11-14 确认开始 M0，并将仓库目录改为 `qurner`；M0 已通过验收。
 
 - `SDS.md` 的 Tauri/React/Rust/SQLite 方案作为 M0 基线。
 - Rust stable、项目本地 npm 依赖和 Playwright WebKit 的安装已在 M0 任务中授权。
@@ -396,7 +411,9 @@ npm run tauri build
 - M0 工程骨架、测试、构建、最小 UI 和 Bundle Identifier 返工已完成；Codex 复验
   通过，任务状态为 `accepted`。
 - 用户已特别追认 M0 既有两次 commit；后续任务仍按协作规范禁止未经授权提交。
-- 下一步为按计划准备 M1，但在用户明确启动前不得开始 M1 实现。
+- M1A–M1F 全部通过验收，EPUB Core、流式预检、rbook 适配、TOC/封面/权重、
+  内容安全、指纹和集成性能已完成。
+- M1 EPUB Core 里程碑完成；M2 尚未启动，等待用户明确开始。
 
 ---
 
@@ -408,4 +425,17 @@ npm run tauri build
 | 0.2-draft | 2026-11-13 | 历史草案：产品定名 Qurner；明确 Codex 为决策与验收方、DeepSeek 为开发方，并指向共享任务流程 |
 | 0.3-draft | 2026-11-14 | 历史草案：更新仓库路径和 M0 执行状态，创建 `TASK-M0` 并记录用户授权 |
 | 0.4-draft | 2026-11-14 | 历史草案：记录 M0 首次验收结果、commit 特批和 Bundle Identifier 返工 |
-| 0.5-draft | 2026-11-14 | M0 复验通过并标记为 `accepted`；等待用户启动 M1 |
+| 0.5-draft | 2026-11-14 | 历史草案：M0 复验通过并标记为 `accepted` |
+| 0.6-draft | 2026-11-14 | 历史草案：启动 M1，新增 M1A–M1D 任务拆分；夹具生成改用 Rust 测试支持代码 |
+| 0.7-draft | 2026-11-14 | 历史草案：M1A 退回返工；新增现有解析器复用 spike，避免重复实现成熟功能 |
+| 0.8-draft | 2026-11-14 | 历史草案：M1A 复验通过；M1P 解析器复用 spike 进入 `ready` |
+| 0.9-draft | 2026-11-14 | 历史草案：M1P 退回返工：要求流式安全预检和真实 EPUB3 样本 |
+| 0.10-draft | 2026-11-14 | 历史草案：M1P 复验通过；采纳 rbook 解析路线，M1B 进入实现 |
+| 0.11-draft | 2026-11-14 | 历史草案：M1B 退回返工：加强 EOCD 身份、多磁盘和目录连续性校验 |
+| 0.12-draft | 2026-11-14 | 历史草案：M1B 复验通过；M1C 进入 `ready` |
+| 0.13-draft | 2026-11-14 | 历史草案：M1C 退回返工：修正正文权重、外部 URI 和 TOC id 唯一性 |
+| 0.14-draft | 2026-11-14 | 历史草案：M1C 复验通过；拆分 M1D 指纹、M1E 安全检测和 M1F 集成验收 |
+| 0.15-draft | 2026-11-14 | 历史草案：M1D 复验通过；M1E 进入 `ready` |
+| 0.16-draft | 2026-11-14 | 历史草案：M1E 退回返工：补齐内联 CSS 远程检测、全部 import 和缺失资源错误 |
+| 0.17-draft | 2026-11-14 | 历史草案：M1E 复验通过；M1F 进入 `ready` |
+| 0.18-draft | 2026-11-14 | M1F 复验通过；M1 EPUB Core 里程碑完成 |

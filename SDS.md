@@ -1,6 +1,6 @@
 # Qurner 个人电子书阅读器软件设计说明书（SDS）
 
-**文档版本：** 0.3-draft  
+**文档版本：** 0.5-draft  
 **文档状态：** 架构草案，待确认后作为 MVP 实现基线  
 **适用需求：** `SRS.md` 0.3-draft  
 **目标平台：** macOS 14 及以上，Apple Silicon  
@@ -39,6 +39,7 @@ MVP 不实现高亮、批注、TXT、PDF、收藏夹、文件重定位、备份�
 | 阅读资源加载 | Tauri 自定义协议，从原始 ZIP 按需读取 | 不复制整本书，不向本地 HTTP 服务暴露文件 |
 | 数据存储 | SQLite + `rusqlite` | 支持事务、索引、版本迁移和 1,000 本书规模，无云依赖 |
 | ZIP 读取 | Rust `zip` crate | 直接读取 EPUB 中央目录和单个资源，适合 100 MB 文件 |
+| EPUB 语义解析 | `rbook = 0.7.13`，关闭默认写功能 | 复用 EPUB2/3 metadata、manifest、spine、TOC 和按需资源读取，避免重复实现 OPF/NCX/nav |
 | XML 解析 | `quick-xml` | 解析 `container.xml`、OPF 和 NCX，不解析外部实体 |
 | HTML 重写与清洗 | `lol_html` | 注入阅读脚本和 CSP nonce，阻断脚本与非本地资源 |
 | 内容指纹 | SHA-256，Rust `sha2` | 与 SRS 的字节级判重规则一致，可流式计算 |
@@ -135,6 +136,7 @@ qurner/
 │       └── state.rs
 ├── crates/
 │   ├── epub-core/              # ZIP、OPF、TOC、元数据、资源与指纹
+│   │   └── tests/support/      # Rust EPUB 夹具生成器
 │   ├── storage-core/           # SQLite、迁移、Repository
 │   └── reader-model/           # Locator、进度、设置和 DTO
 ├── fixtures/
@@ -142,7 +144,6 @@ qurner/
 │   ├── expected/
 │   └── performance/
 ├── scripts/
-│   ├── generate-fixtures.ts
 │   ├── benchmark-import.sh
 │   └── verify-srs-traceability.sh
 └── docs/
@@ -202,8 +203,9 @@ TanStack Query 管理后端持久数据；Zustand 只管理不需要持久化的
 
 ## 5.4 EPUB Core
 
-- 验证 ZIP 和 EPUB 必需结构。
-- 解析 `META-INF/container.xml`、OPF、manifest、spine、metadata 和目录。
+- 使用 `zip` 和受限 File 读取完成安全预检。
+- 预检通过后使用 `rbook = 0.7.13` 解析 container、OPF、manifest、spine、metadata
+  和目录。
 - 检测 DRM、加密正文、固定版式、竖排及脚本依赖。
 - 规范化 ZIP 内资源路径，阻止 `..`、绝对路径和符号链接式越界。
 - 读取封面并生成缓存图。
@@ -825,4 +827,6 @@ npm run tauri build
 |---|---|---|---|
 | 0.1-draft | 2026-11-13 | 历史草案 | 确定 Tauri/React/Rust/SQLite 架构、模块边界、数据模式、命令契约、EPUB iframe 安全模型和测试策略 |
 | 0.2-draft | 2026-11-13 | 历史草案 | 产品正式定名 Qurner，更新应用名、Bundle Identifier、数据目录和 AI 协作文件位置 |
-| 0.3-draft | 2026-11-14 | 当前草案 | 根据 Tauri 校验警告，将 Bundle Identifier 和数据目录标识改为 `com.qurner.reader` |
+| 0.3-draft | 2026-11-14 | 历史草案 | 根据 Tauri 校验警告，将 Bundle Identifier 和数据目录标识改为 `com.qurner.reader` |
+| 0.4-draft | 2026-11-14 | 历史草案 | EPUB 测试夹具改由 Rust 测试支持代码生成，避免 M1 引入 JavaScript ZIP 依赖 |
+| 0.5-draft | 2026-11-14 | 当前草案 | 采用固定版本 `rbook 0.7.13` 薄适配层，并保留独立的流式 ZIP 安全预检 |
