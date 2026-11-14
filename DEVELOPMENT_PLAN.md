@@ -1,8 +1,8 @@
 # Qurner MVP 开发计划
 
-**文档版本：** 0.46-draft  
-**适用需求：** `SRS.md` 0.3-draft  
-**适用设计：** `SDS.md` 0.11-draft  
+**文档版本：** 0.61-draft
+**适用需求：** `SRS.md` 0.3-draft
+**适用设计：** `SDS.md` 0.13-draft
 **目标：** 交付可在 macOS 14+ Apple Silicon 本地运行的 MVP
 
 ---
@@ -253,7 +253,7 @@ npm run tauri dev
 | `TASK-M3D` | WebKit 六类夹具、100 MB 按需加载和 M3 ADR 总验收 | `accepted` |
 
 M2 已提交（`88e39fc`）。M3A–M3D 已通过验收，用户已接受 ADR-0003，M3 正式关闭；
-M4 尚未启动。
+M4A–M4D 已全部通过验收，M4 正式完成；M5 尚未启动。
 
 ## M4：导入与书库 UI
 
@@ -280,6 +280,20 @@ M4 尚未启动。
 
 - AC-010、AC-011、AC-012、AC-030、AC-031、AC-032。
 - 1,000 本书场景下冷启动和搜索达到 NFR-003、NFR-004。
+
+### 任务拆分
+
+| 任务 | 内容 | 状态 |
+|---|---|---|
+| `TASK-M4A` | 前端命令桥、Zod DTO 和导入事件订阅 | `accepted` |
+| `TASK-M4B` | 系统文件选择、批量导入和结果汇总 UI | `accepted` |
+| `TASK-M4C` | 书库网格/列表、搜索排序、软移除和错误状态 | `accepted` |
+| `TASK-M4D` | 1,000 本虚拟化、封面缓存协议、真实 Qurner.app 集成冒烟 | `accepted` |
+
+M3 已提交（`25b09e7`）。用户已授权启动 M4；M4A 使用现有 React、Zod 和
+`@tauri-apps/api`，不新增依赖。用户已批准 M4B 使用 `tauri-plugin-dialog` 的 Rust API
+和 `@tanstack/react-query` 5；dialog 只由自定义 `selectImportFiles` command 调用，
+前端 capability 仍保持 `core:default`。
 
 ## M5：阅读器闭环
 
@@ -439,7 +453,26 @@ npm run tauri build
   内容安全、指纹和集成性能已完成。
 - M1 EPUB Core 里程碑完成并已提交（`f39d1e6`）。
 - M2A–M2D 已全部通过验收并提交（`88e39fc`）。
-- 用户已授权启动 M3；M3A–M3D accepted，ADR-0003 accepted，M3 关闭。
+- 用户已授权启动 M4；M3 已提交（`25b09e7`）。M4A 首轮验收发现真实
+  `BookSummary` nullable 契约和 `softRemoveBook` 响应校验问题，返工后复验通过。
+- 用户批准 M4B 使用 dialog 插件 Rust API 与 TanStack Query；SDS 更新至
+  `0.12-draft`，M4B 进入实现。
+- M4B 经三轮验收通过：dialog/Query 接入、导入流程、安全错误、注册验证和全部失败
+  场景完成；`npm run check` stderr 已无 act 警告。
+- M4C 已就绪：实现真实书库网格/列表、搜索排序、封面占位、软移除及页面状态；
+  封面缓存和 `cover://` 协议留 M4D，M4C 不新增依赖。
+- M4C 首轮验收退回返工：补连续输入防抖调用次数测试和列表视图封面断言。
+- M4C 返工复验通过：连续输入防抖与两视图封面测试有效；书库 UI 任务完成。
+- 用户批准 `image 0.25.10` 与 `@tanstack/react-virtual 3.14.26`；SDS 更新至
+  `0.13-draft`，M4D 进入 ready，包含封面缓存协议、1,000 本虚拟化和真实应用验收。
+- M4D 首轮验收退回返工：虚拟行重叠、冷启动口径错误、真实应用/封面协议未验证，
+  并补 Space/封面失败/写盘失败/原文件 hash 测试。
+- M4D 首轮真实 GUI 发现软移除仅更新 UI、数据库保持 `active`；退回返工后改为显式
+  SQLite 事务并增加前端 refetch 校验。
+- M4D 终轮复验通过：真实导入、`cover://` 封面、搜索排序、软移除持久化、正常退出与
+  同 HOME 重启均通过；原 EPUB SHA-256 不变。
+- NFR-003 在 1,000 本合成书库上完成 10 次真实进程冷启动，最大 627 ms、p95 627 ms，
+  低于 3 s。M4D accepted，M4 里程碑完成；未启动 M5。
 
 ---
 
@@ -492,4 +525,19 @@ npm run tauri build
 | 0.43-draft | 2026-11-14 | 历史草案：M3C 复验通过；M3A–M3C accepted，等待启动 M3D |
 | 0.44-draft | 2026-11-14 | 历史草案：用户启动 M3D；固定六类 EPUB、WebKit、100 MB、性能和技术门槛报告 |
 | 0.45-draft | 2026-11-14 | 历史草案：M3D 技术验收通过；形成 ADR-0003 Proposed |
-| 0.46-draft | 2026-11-14 | 用户接受 ADR-0003；M3 正式关闭，准备启动 M4 |
+| 0.46-draft | 2026-11-14 | 历史草案：用户接受 ADR-0003；M3 正式关闭，准备启动 M4 |
+| 0.47-draft | 2026-11-14 | 历史草案：M3 提交；启动 M4，M4A 就绪，文件选择和 Query 依赖待后续确认 |
+| 0.48-draft | 2026-11-14 | 历史草案：M4A 首轮验收退回返工：修正真实 nullable DTO 契约并严格校验软移除响应 |
+| 0.49-draft | 2026-11-14 | M4A 返工复验通过并 accepted；等待用户决定 M4B 文件选择与 Query 依赖 |
+| 0.50-draft | 2026-11-14 | 用户批准 M4B 依赖与权限边界；SDS 0.12-draft，TASK-M4B 进入 ready |
+| 0.51-draft | 2026-11-14 | 历史草案：M4B 首轮验收退回返工：清理 act 警告并补齐注册与全部失败测试 |
+| 0.52-draft | 2026-11-14 | 历史草案：M4B 第二轮验收：注册与全失败场景通过，仍有 3 条 act 警告待修复 |
+| 0.53-draft | 2026-11-14 | M4B 终轮复验通过并 accepted；导入 UI 与系统文件选择完成 |
+| 0.54-draft | 2026-11-14 | 启动 M4C：书库视图、搜索排序和软移除就绪；封面缓存调整至 M4D |
+| 0.55-draft | 2026-11-14 | M4C 首轮验收退回返工：补强防抖与列表封面测试证据 |
+| 0.56-draft | 2026-11-14 | M4C 返工复验通过并 accepted；书库视图、搜索排序和软移除完成 |
+| 0.57-draft | 2026-11-14 | 批准封面缓存与虚拟化依赖；SDS 0.13-draft，TASK-M4D 进入 ready |
+| 0.58-draft | 2026-11-14 | M4D 首轮验收退回返工：修正虚拟几何、冷启动证据和真实应用验收 |
+| 0.59-draft | 2026-11-15 | M4D 自动化复验通过；真实 GUI 冒烟等待用户操作，状态 blocked |
+| 0.60-draft | 2026-11-15 | M4D 真实 GUI 发现软移除未持久化、重启后重新出现；状态 rework，NFR-003 暂停 |
+| 0.61-draft | 2026-11-15 | M4D 返工复验通过并 accepted；真实 GUI、软移除重启和 NFR-003 均通过，M4 完成 |

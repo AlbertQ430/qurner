@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use tauri::Emitter;
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::dto::{BookSummaryDto, ImportCompletedEvent, ImportItemResultDto, ImportProgressEvent};
 use crate::error::{AppError, AppErrorCode};
@@ -173,9 +174,118 @@ fn parse_book_id(body: &Value) -> Result<&str, AppError> {
         .ok_or_else(AppError::invalid_input)
 }
 
+/// 打开系统原生多选文件对话框，返回用户确认的原始路径；取消返回空数组。
+#[tauri::command(rename = "selectImportFiles")]
+pub async fn select_import_files<R: tauri::Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<String>, AppError> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || select_import_files_blocking(&app))
+        .await
+        .map_err(|_| AppError::new(AppErrorCode::Internal))?
+}
+
+fn select_import_files_blocking<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<String>, AppError> {
+    let files = app
+        .dialog()
+        .file()
+        .add_filter("EPUB", &["epub"])
+        .blocking_pick_files();
+    match files {
+        None => Ok(Vec::new()),
+        Some(files) => validate_selected_files(files),
+    }
+}
+
+/// 校验选择结果：只接受 1–1,000 个路径，保持顺序，拒绝空白与非 UTF-8 路径。
+fn validate_selected_files(
+    files: Vec<tauri_plugin_dialog::FilePath>,
+) -> Result<Vec<String>, AppError> {
+    if files.len() > MAX_IMPORT_PATHS {
+        return Err(AppError::invalid_input());
+    }
+    let mut paths = Vec::with_capacity(files.len());
+    for file in files {
+        let path = file.into_path().map_err(|_| AppError::invalid_input())?;
+        let Some(value) = path.to_str() else {
+            return Err(AppError::invalid_input());
+        };
+        if value.trim().is_empty() {
+            return Err(AppError::invalid_input());
+        }
+        paths.push(value.to_string());
+    }
+    Ok(paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_selected_dialog_files() {
+        use std::os::unix::ffi::OsStringExt;
+        use tauri_plugin_dialog::FilePath;
+
+        fn path(value: &str) -> FilePath {
+            FilePath::Path(std::path::PathBuf::from(value))
+        }
+
+        assert_eq!(
+            validate_selected_files(vec![]).expect("cancel"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            validate_selected_files(vec![path("/tmp/a.epub")]).expect("single"),
+            vec!["/tmp/a.epub".to_string()]
+        );
+
+        let ordered: Vec<FilePath> = ["c", "a", "b"]
+            .into_iter()
+            .map(|name| path(&format!("/tmp/{name}.epub")))
+            .collect();
+        assert_eq!(
+            validate_selected_files(ordered).expect("order"),
+            vec![
+                "/tmp/c.epub".to_string(),
+                "/tmp/a.epub".to_string(),
+                "/tmp/b.epub".to_string(),
+            ]
+        );
+
+        let max: Vec<FilePath> = (0..MAX_IMPORT_PATHS)
+            .map(|index| path(&format!("/tmp/{index}.epub")))
+            .collect();
+        assert_eq!(
+            validate_selected_files(max).expect("max").len(),
+            MAX_IMPORT_PATHS
+        );
+
+        let too_many: Vec<FilePath> = (0..=MAX_IMPORT_PATHS)
+            .map(|index| path(&format!("/tmp/{index}.epub")))
+            .collect();
+        assert_eq!(
+            validate_selected_files(too_many)
+                .expect_err("too many")
+                .code,
+            AppErrorCode::InvalidInput
+        );
+
+        for invalid in [
+            path("   "),
+            path("\t"),
+            FilePath::Path(std::ffi::OsString::from_vec(vec![0xFF, 0xFE]).into()),
+        ] {
+            assert_eq!(
+                validate_selected_files(vec![invalid])
+                    .expect_err("invalid path")
+                    .code,
+                AppErrorCode::InvalidInput
+            );
+        }
+    }
 
     #[test]
     fn validates_paths() {

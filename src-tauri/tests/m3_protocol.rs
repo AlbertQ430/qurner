@@ -579,17 +579,29 @@ fn registers_epub_protocol_in_mock_runtime() {
 fn has_no_network_or_plugin_dependencies() {
     let manifest = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
         .expect("read Cargo.toml");
+    assert!(
+        manifest.contains("tauri-plugin-dialog"),
+        "应包含已批准的 dialog 插件"
+    );
     for needle in [
-        "tauri-plugin-",
         "plugin-http",
         "plugin-shell",
         "plugin-fs",
-        "plugin-dialog",
         "reqwest",
         "hyper",
     ] {
         assert!(!manifest.contains(needle), "不应包含 {needle}");
     }
+    let plugin_lines: Vec<&str> = manifest
+        .lines()
+        .filter(|line| line.contains("tauri-plugin-"))
+        .collect();
+    assert!(
+        plugin_lines
+            .iter()
+            .all(|line| line.contains("tauri-plugin-dialog")),
+        "只允许 tauri-plugin-dialog，实际：{plugin_lines:?}"
+    );
 
     for source in [
         concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"),

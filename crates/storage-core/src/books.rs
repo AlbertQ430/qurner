@@ -42,9 +42,9 @@ pub(crate) fn insert_new_book(
             "INSERT INTO books(
                 id, fingerprint, source_path, title, author,
                 title_search, author_search, title_sort_key, author_sort_key,
-                manifest_json, manifest_version, lifecycle, imported_at
+                cover_cache_key, manifest_json, manifest_version, lifecycle, imported_at
              ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'active', ?13
              )",
             params![
                 record.id,
@@ -56,6 +56,7 @@ pub(crate) fn insert_new_book(
                 record.author_search,
                 record.title_sort_key,
                 record.author_sort_key,
+                record.cover_cache_key,
                 record.manifest_json,
                 record.manifest_version,
                 record.imported_at,
@@ -110,8 +111,9 @@ fn current_lifecycle(connection: &Connection, id: &str) -> Result<Option<String>
 }
 
 /// 软移除：只把 lifecycle 改为 removed，不删除关联数据。
-pub(crate) fn soft_remove_book(connection: &Connection, id: &str) -> Result<(), StorageError> {
-    let updated = connection
+pub(crate) fn soft_remove_book(connection: &mut Connection, id: &str) -> Result<(), StorageError> {
+    let transaction = connection.transaction().map_err(map_transaction_error)?;
+    let updated = transaction
         .execute(
             "UPDATE books SET lifecycle = 'removed' WHERE id = ?1 AND lifecycle = 'active'",
             [id],
@@ -120,6 +122,7 @@ pub(crate) fn soft_remove_book(connection: &Connection, id: &str) -> Result<(), 
     if updated == 0 {
         return Err(StorageError::QueryFailed);
     }
+    transaction.commit().map_err(map_transaction_error)?;
     Ok(())
 }
 
@@ -251,6 +254,7 @@ mod tests {
 
     fn record(id: &str, fingerprint: &str) -> NewBookRecord {
         NewBookRecord {
+            cover_cache_key: None,
             id: id.to_string(),
             fingerprint: fingerprint.to_string(),
             source_path: "/tmp/book.epub".to_string(),
@@ -278,7 +282,7 @@ mod tests {
         assert_eq!(found.id, "book-1");
         assert_eq!(found.lifecycle, "active");
 
-        soft_remove_book(&connection, "book-1").expect("remove");
+        soft_remove_book(&mut connection, "book-1").expect("remove");
         assert_eq!(
             find_by_fingerprint(&connection, "fp-1")
                 .expect("find")
@@ -381,7 +385,7 @@ mod tests {
             )
             .expect("settings");
 
-        soft_remove_book(&connection, "book-1").expect("remove");
+        soft_remove_book(&mut connection, "book-1").expect("remove");
         assert_eq!(
             reactivate_book(
                 &connection,
@@ -418,6 +422,7 @@ mod tests {
         author_key: u32,
     ) {
         let record = NewBookRecord {
+            cover_cache_key: None,
             id: id.to_string(),
             fingerprint: format!("fp-{id}"),
             source_path: format!("/tmp/{id}.epub"),
@@ -671,7 +676,7 @@ mod tests {
             2,
         );
 
-        soft_remove_book(&connection, "b").expect("soft remove");
+        soft_remove_book(&mut connection, "b").expect("soft remove");
         assert_eq!(
             ids(&connection, BookSort::Title, SortDirection::Asc),
             vec!["a"]

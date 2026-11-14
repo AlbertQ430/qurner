@@ -41,6 +41,7 @@ fn insert_record(
     author_key: u32,
 ) {
     let record = NewBookRecord {
+        cover_cache_key: None,
         id: id.to_string(),
         fingerprint: format!("fp-{id}"),
         source_path: format!("/tmp/{id}.epub"),

@@ -20,7 +20,7 @@ enum Request {
         reply: Sender<Result<Option<ExistingBookRecord>, StorageError>>,
     },
     InsertNewBook {
-        record: NewBookRecord,
+        record: Box<NewBookRecord>,
         reply: Sender<Result<(), StorageError>>,
     },
     ReactivateBook {
@@ -132,7 +132,7 @@ impl StorageService {
         let (reply_sender, reply_receiver) = mpsc::channel();
         sender
             .send(Request::InsertNewBook {
-                record,
+                record: Box::new(record),
                 reply: reply_sender,
             })
             .map_err(|_| StorageError::ThreadUnavailable)?;
@@ -252,7 +252,7 @@ fn run_worker(connection: &mut Connection, receiver: mpsc::Receiver<Request>) {
                 let _ = reply.send(books::find_by_fingerprint(connection, &fingerprint));
             }
             Request::InsertNewBook { record, reply } => {
-                let _ = reply.send(books::insert_new_book(connection, record));
+                let _ = reply.send(books::insert_new_book(connection, *record));
             }
             Request::ReactivateBook {
                 id,

@@ -872,6 +872,7 @@ fn concurrent_queries_and_imports_on_thousand_books() {
     for index in 0..1_000_u32 {
         storage
             .insert_new_book(NewBookRecord {
+                cover_cache_key: None,
                 id: format!("book-{index:04}"),
                 fingerprint: format!("fp-{index:04}"),
                 source_path: format!("/tmp/book-{index:04}.epub"),
@@ -958,17 +959,29 @@ fn capabilities_and_dependencies_are_minimal() {
     assert_eq!(value["windows"], json!(["main"]));
 
     let cargo = std::fs::read_to_string(manifest_dir.join("Cargo.toml")).expect("read Cargo.toml");
+    assert!(
+        cargo.contains("tauri-plugin-dialog"),
+        "应包含已批准的 dialog 插件"
+    );
     for needle in [
-        "tauri-plugin-",
         "plugin-http",
         "plugin-shell",
         "plugin-fs",
-        "plugin-dialog",
         "reqwest",
         "hyper",
     ] {
         assert!(!cargo.contains(needle), "不应包含 {needle}");
     }
+    let plugin_lines: Vec<&str> = cargo
+        .lines()
+        .filter(|line| line.contains("tauri-plugin-"))
+        .collect();
+    assert!(
+        plugin_lines
+            .iter()
+            .all(|line| line.contains("tauri-plugin-dialog")),
+        "只允许 tauri-plugin-dialog，实际：{plugin_lines:?}"
+    );
 
     let commands =
         std::fs::read_to_string(manifest_dir.join("src/commands.rs")).expect("read commands");

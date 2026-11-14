@@ -6,6 +6,7 @@ use epub_core::{EpubErrorCode, fingerprint_file, parse_epub};
 use reader_model::{BookFingerprint, BookSummary, ListBooksQuery};
 use storage_core::{NewBookRecord, ReactivateOutcome, StorageService};
 
+use crate::cover_cache::CoverCache;
 use crate::error::{BookError, StorageErrorKind};
 use crate::keys;
 
@@ -29,12 +30,25 @@ pub struct ImportItemResult {
 /// 书库用例服务：串联 EPUB Core 与 Storage Service。
 pub struct LibraryService {
     storage: StorageService,
+    covers: Option<CoverCache>,
 }
 
 impl LibraryService {
     #[must_use]
     pub fn new(storage: StorageService) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            covers: None,
+        }
+    }
+
+    /// 带封面缓存的构造；缓存失败不影响导入。
+    #[must_use]
+    pub fn with_cover_cache(storage: StorageService, covers: CoverCache) -> Self {
+        Self {
+            storage,
+            covers: Some(covers),
+        }
     }
 
     /// 导入单本书；任何失败都体现在返回的 `ImportItemResult` 中。
@@ -134,9 +148,14 @@ impl LibraryService {
 
         let fingerprint = initial.to_string();
         let book_id = keys::new_book_id();
+        let cover_cache_key = self
+            .covers
+            .as_ref()
+            .and_then(|covers| covers.generate(path, &initial, &book));
         let record = NewBookRecord {
             id: book_id.clone(),
             fingerprint: fingerprint.clone(),
+            cover_cache_key,
             source_path,
             title: title.clone(),
             author: author.clone(),

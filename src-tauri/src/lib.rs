@@ -34,19 +34,31 @@ pub fn run() {
 
 fn build_app() -> tauri::Builder<tauri::Wry> {
     let sessions = Arc::new(session::SessionRegistry::new());
-    let builder = protocol::register(
-        tauri::Builder::default().invoke_handler(tauri::generate_handler![
-            commands::start_import,
-            commands::list_books,
-            commands::soft_remove_book,
-        ]),
-        Arc::clone(&sessions),
+    let cover_directory = protocol::cover::directory_handle();
+    let builder = protocol::cover::register(
+        protocol::register(
+            tauri::Builder::default()
+                .plugin(tauri_plugin_dialog::init())
+                .invoke_handler(tauri::generate_handler![
+                    commands::start_import,
+                    commands::list_books,
+                    commands::soft_remove_book,
+                    commands::select_import_files,
+                ]),
+            Arc::clone(&sessions),
+        ),
+        Arc::clone(&cover_directory),
     );
 
     builder.setup(move |app| {
         let state = match app.path().app_data_dir() {
             Ok(directory) => {
-                state::initialize_state_with_sessions(&directory, Arc::clone(&sessions))
+                let (state, covers) =
+                    state::initialize_state_with_covers(&directory, Arc::clone(&sessions));
+                if let Some(directory) = covers {
+                    protocol::cover::set_directory(&cover_directory, directory);
+                }
+                state
             }
             Err(_) => {
                 tracing::error!(

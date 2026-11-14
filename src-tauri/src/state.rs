@@ -1,6 +1,6 @@
 //! Tauri 应用状态、启动初始化与导入 job 并发限制。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 
 use library_core::LibraryService;
@@ -138,6 +138,24 @@ pub fn initialize_state_with_sessions(
     app_data_dir: &Path,
     sessions: Arc<SessionRegistry>,
 ) -> AppState {
+    initialize_state_with_covers(app_data_dir, sessions).0
+}
+
+/// 与 [`initialize_state_with_sessions`] 相同，但生产初始化会启用封面缓存。
+///
+/// 返回状态与封面缓存目录（缓存初始化失败时为 `None`，不影响书库整体可用）。
+#[must_use]
+pub fn initialize_state_with_covers(
+    app_data_dir: &Path,
+    sessions: Arc<SessionRegistry>,
+) -> (AppState, Option<PathBuf>) {
+    initialize_state_inner(app_data_dir, sessions)
+}
+
+fn initialize_state_inner(
+    app_data_dir: &Path,
+    sessions: Arc<SessionRegistry>,
+) -> (AppState, Option<PathBuf>) {
     if let Err(error) = std::fs::create_dir_all(app_data_dir) {
         tracing::error!(
             stage = "create_app_data_dir",
@@ -145,19 +163,36 @@ pub fn initialize_state_with_sessions(
             code = AppError::storage().code.as_str(),
             "应用数据目录创建失败"
         );
-        return AppState::failed_with_sessions(AppError::storage(), sessions);
+        return (
+            AppState::failed_with_sessions(AppError::storage(), sessions),
+            None,
+        );
     }
 
+    let covers_directory = app_data_dir.join("covers");
+    let covers = library_core::CoverCache::new(&covers_directory);
     let database_path = app_data_dir.join("reader.sqlite3");
     match StorageService::open(&database_path) {
-        Ok(storage) => AppState::ready_with_sessions(LibraryService::new(storage), sessions),
+        Ok(storage) => {
+            let library = match &covers {
+                Some(cache) => LibraryService::with_cover_cache(storage, cache.clone()),
+                None => LibraryService::new(storage),
+            };
+            (
+                AppState::ready_with_sessions(library, sessions),
+                covers.map(|cache| cache.directory().to_path_buf()),
+            )
+        }
         Err(_) => {
             tracing::error!(
                 stage = "open_storage",
                 code = AppError::storage().code.as_str(),
                 "存储初始化失败"
             );
-            AppState::failed_with_sessions(AppError::storage(), sessions)
+            (
+                AppState::failed_with_sessions(AppError::storage(), sessions),
+                None,
+            )
         }
     }
 }

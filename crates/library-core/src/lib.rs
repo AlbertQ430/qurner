@@ -2,10 +2,12 @@
 
 #![forbid(unsafe_code)]
 
+mod cover_cache;
 mod error;
 mod keys;
 mod service;
 
+pub use cover_cache::CoverCache;
 pub use error::{BookError, StorageErrorKind};
 pub use service::{ImportItemResult, ImportStatus, LibraryService};
 

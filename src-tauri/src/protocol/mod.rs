@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use epub_core::{MAX_RESOURCE_BYTES, ResourcePath, ResourceReadError, read_resource};
 
+pub mod cover;
 mod html;
 
 use crate::session::SessionRegistry;

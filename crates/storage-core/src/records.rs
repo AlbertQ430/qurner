@@ -12,6 +12,8 @@ pub struct NewBookRecord {
     pub author_search: String,
     pub title_sort_key: Vec<u8>,
     pub author_sort_key: Vec<u8>,
+    /// 封面缓存键（内容指纹）；无缓存时为 `None`。
+    pub cover_cache_key: Option<String>,
     pub manifest_json: String,
     pub manifest_version: u32,
     pub imported_at: String,

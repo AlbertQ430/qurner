@@ -1,6 +1,6 @@
 # Qurner 个人电子书阅读器软件设计说明书（SDS）
 
-**文档版本：** 0.11-draft  
+**文档版本：** 0.13-draft  
 **文档状态：** 架构草案，待确认后作为 MVP 实现基线  
 **适用需求：** `SRS.md` 0.3-draft  
 **目标平台：** macOS 14 及以上，Apple Silicon  
@@ -44,7 +44,10 @@ MVP 不实现高亮、批注、TXT、PDF、收藏夹、文件重定位、备份�
 | HTML 重写与清洗 | `lol_html` | 注入阅读脚本和 CSP nonce，阻断脚本与非本地资源 |
 | 内容指纹 | SHA-256，Rust `sha2` | 与 SRS 的字节级判重规则一致，可流式计算 |
 | Unicode 排序 | `icu_collator 2.4.0` compiled data | 不依赖系统 ICU，为中文和英文书名/作者生成确定性排序键 |
-| 前端数据请求 | TanStack Query | 管理命令结果、缓存、失效和异步状态 |
+| 前端数据请求 | TanStack Query 5 | 管理命令结果、缓存、失效和异步状态；本地数据不自动轮询 |
+| 书库虚拟化 | TanStack Virtual 3 | 分别虚拟化列表行和响应式网格行，避免 1,000 本书创建完整卡片 DOM |
+| 系统文件选择 | `tauri-plugin-dialog` 2 Rust API + 自定义 Tauri command | 使用系统原生多选文件对话框，只返回用户明确选择的路径；前端不直接获得 dialog 插件权限 |
+| 封面缓存 | `image 0.25.10`，仅启用 JPEG/PNG/GIF/WebP 解码 | 导入时将嵌入封面缩放为 512 px 长边 JPEG；不重新读取原始 EPUB 即可显示书库封面 |
 | 阅读器临时状态 | Zustand | 管理当前章节、页状态、侧栏和瞬时 UI 状态 |
 | 路由 | React Router | 区分书库、阅读器及未来的书籍详情 |
 | 前端校验 | Zod | 校验所有 Tauri 命令和 iframe 消息 |
@@ -61,6 +64,8 @@ MVP 不实现高亮、批注、TXT、PDF、收藏夹、文件重定位、备份�
 - 不采用 Readium Swift Toolkit：会引入大型原生阅读框架，并为当前 MVP 增加不必要的格式与导航抽象。
 - 不采用 epub.js 作为主引擎：需要把整本压缩包带入 JavaScript，或额外实现资源适配；自研 Rust 清单解析加小型阅读脚本更容易控制内存、安全和位置模型。
 - 不采用 Tauri 3 alpha：只使用 stable major version，避免 alpha 破坏 API。
+- 不向前端直接开放 `@tauri-apps/plugin-dialog` 或 dialog capability：文件选择由 Rust
+  自定义命令完成，避免扩大 WebView 的插件命令权限。
 - 不采用 SwiftData、Core Data 或 JSON 文件作为主存储：SQLite 的迁移、事务和查询行为更可控。
 
 ## 2.3 环境与版本策略
@@ -185,12 +190,22 @@ library-core -X-> Tauri
 
 TanStack Query 管理后端持久数据；Zustand 只管理不需要持久化的阅读器瞬时状态。
 
+TanStack Query 使用单一 `QueryClient`。本地 Tauri 命令默认不自动重试，也不因窗口重新
+聚焦而重复查询；写操作成功或对应事件完成后通过固定 query key 显式失效。文件选择路径、
+书籍正文和私密 locator 不进入 query cache。
+
 ## 5.2 Tauri 命令层
 
 - 将前端输入转换为域命令。
 - 校验路径数量、排序枚举、定位范围和会话状态。
 - 将内部错误映射为稳定错误码。
 - 不包含 EPUB 解析或 SQL 细节。
+- `selectImportFiles` 使用 `tauri-plugin-dialog` 的 Rust API 打开系统原生多选文件对话框，
+  只筛选 EPUB，并把用户选择结果返回给前端；取消返回空数组。
+- 文件选择不扫描目录、不读取文件内容、不缓存路径；一次选择超过 1,000 本或无法表示为
+  UTF-8 字符串时返回稳定 AppError。
+- dialog 插件仅注册 Rust API；`src-tauri/capabilities/default.json` 继续只授予
+  `core:default`，前端不得直接调用 dialog 插件命令。
 
 ## 5.3 Import Service
 
@@ -276,7 +291,22 @@ iframe 只允许可信阅读脚本通过 nonce 执行。原书 `<script>`、内�
 必须来自应用构建产物，不读取 EPUB 归档。每个 HTML 响应生成新的 CSP 随机 nonce，并在
 正文结束前注入唯一可信 `<script>`；nonce 不写入日志，也不跨响应复用。
 
-书库封面使用独立 `cover://<fingerprint>.jpg` 协议。处理器只接受数据库中存在且具有封面缓存键的指纹，不接收任意文件路径。主应用 CSP 只额外允许 `cover:` 图片和 `epub:` iframe。
+书库封面使用独立 `cover://<fingerprint>` 协议。处理器只接受严格的 64 位内容指纹并映射到
+应用自有缓存文件，不接收任意文件路径。主应用 CSP 只额外允许 `cover:` 图片和 `epub:`
+iframe。
+
+封面缓存规则：
+
+- 导入新书时读取 manifest 封面，限制源文件大小并在阻塞导入线程中解码。
+- 缓存文件位于应用数据目录 `covers/`，文件名为完整 SHA-256 内容指纹加 `.jpg`。
+- 缩放后最长边为 512 px，按比例缩放并编码为 JPEG quality 85。
+- 先写同目录临时文件并刷新，再原子重命名；失败时删除临时文件并保持
+  `cover_cache_key=NULL`，不阻断书籍导入。
+- 不支持的图片、损坏图片、无封面和缓存写入失败都回退占位封面，不记录完整路径。
+- `cover_cache_key` 使用内容指纹；`cover://<fingerprint>` 只接受 64 位小写十六进制，
+  映射到应用自有缓存目录中的单个文件，不接收 URL 路径、查询、片段或其他文件系统位置。
+- 未找到、格式非法或读取失败统一返回 404；非 GET/HEAD 返回 405；有效响应
+  `Content-Type=image/jpeg`，带 `nosniff` 和不可变长缓存头。
 
 ## 6.2 资源响应
 
@@ -575,6 +605,7 @@ type AppError = {
 ## 9.2 Tauri 命令
 
 ```ts
+selectImportFiles(): Promise<string[]>
 startImport(paths: string[]): Promise<{ jobId: string }>
 listBooks(input: {
   query?: string
@@ -603,6 +634,9 @@ createBookmark(input: {
 }): Promise<Bookmark>
 deleteBookmark(bookId: string, bookmarkId: string): Promise<void>
 ```
+
+`selectImportFiles` 返回用户明确选择的路径数组，顺序与对话框一致；取消时返回 `[]`。
+路径由前端原样传给 `startImport`，不得 trim、改写或显示完整本地路径。
 
 `startImport` 返回后，Rust 以单本为单位发出 `import-progress` 事件。最终事件必须给出完整 `ImportBatchResult`。
 
@@ -843,7 +877,8 @@ sequenceDiagram
 - SQLite 写入通过单写工作线程串行化，读查询走连接池或只读连接。
 - 导入并发上限为 2，避免多个 100 MB 文件同时解压导致内存峰值。
 - 封面缓存使用 512 px 长边 JPEG，打开书库不读取原始 EPUB。
-- 书库一次查询返回 1,000 条摘要，不做无意义的服务端分页；React 网格使用列表虚拟化。
+- 书库一次查询返回 1,000 条摘要，不做无意义的服务端分页；列表使用 TanStack Virtual
+  逐行虚拟化，网格将响应式列数合并为虚拟行，保持键盘焦点和可访问列表语义。
 - iframe 只加载当前 spine 项及必要的相邻资源，不在内存中拼接整本书。
 - 保存进度的数据库写入使用事务和短事务，不持锁执行 UI 或解析任务。
 
@@ -920,7 +955,9 @@ npm run tauri build
 - 本地构建：`npm run tauri build`。
 - MVP 交付本地可运行的 `Qurner.app`，不要求公证、自动更新或 App Store 发布。
 - 应用默认无网络权限使用需求；Tauri capabilities 不授予前端直接文件系统、shell 或 HTTP 插件权限。
-- 文件选择和仅必要命令通过自定义 Tauri command 暴露。
+- 文件选择通过 Rust `tauri-plugin-dialog` API 和自定义 `selectImportFiles` command 暴露；
+  前端不直接持有 dialog 插件权限。
+- 主应用 CSP 的 `img-src` 允许 `cover:`，不增加 HTTP/HTTPS 图片来源。
 - 若后续需要签名、公证或 Sandbox，必须单独形成 ADR，并替换 `FileAccessProvider`。
 
 ---
@@ -968,4 +1005,6 @@ npm run tauri build
 | 0.8-draft | 2026-11-14 | 历史草案 | 明确导入进度事件载荷、逐本顺序和跨任务 CPU 导入并发上限 |
 | 0.9-draft | 2026-11-14 | 历史草案 | 固定 EPUB 会话令牌、路径校验、manifest 白名单和协议响应边界 |
 | 0.10-draft | 2026-11-14 | 历史草案 | 固定 CSP nonce、可信脚本入口、HTML 防护和 iframe 消息信封 |
-| 0.11-draft | 2026-11-14 | 当前草案 | 固定 Locator 偏移语义、分页页步长、模式切换和 M3C iframe payload |
+| 0.11-draft | 2026-11-14 | 历史草案 | 固定 Locator 偏移语义、分页页步长、模式切换和 M3C iframe payload |
+| 0.12-draft | 2026-11-14 | 历史草案 | 采用 TanStack Query 5；文件选择使用 dialog 插件 Rust API 和自定义 `selectImportFiles` |
+| 0.13-draft | 2026-11-14 | 当前草案 | 批准 image 封面缓存、`cover://` 协议和 TanStack Virtual 1,000 本书库虚拟化 |

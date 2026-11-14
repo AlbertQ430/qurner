@@ -33,6 +33,7 @@ rusqlite = { version = "0.42", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3", features = ["formatting"] }
 icu_collator = "2.4.0"
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 
 [profile.release]
 codegen-units = 1
