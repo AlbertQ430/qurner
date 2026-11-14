@@ -6,8 +6,10 @@
 #![forbid(unsafe_code)]
 
 pub mod fingerprint;
+pub mod library;
 
 pub use fingerprint::{BookFingerprint, FingerprintError, SHA256_BYTES, SHA256_HEX_LEN};
+pub use library::{BookSort, BookSummary, ListBooksQuery, SortDirection};
 
 /// crate 名称，用于冒烟测试确认 workspace 能编译并测试本包。
 pub const CRATE_NAME: &str = "reader-model";

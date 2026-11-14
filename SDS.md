@@ -1,6 +1,6 @@
 # Qurner 个人电子书阅读器软件设计说明书（SDS）
 
-**文档版本：** 0.5-draft  
+**文档版本：** 0.8-draft  
 **文档状态：** 架构草案，待确认后作为 MVP 实现基线  
 **适用需求：** `SRS.md` 0.3-draft  
 **目标平台：** macOS 14 及以上，Apple Silicon  
@@ -43,6 +43,7 @@ MVP 不实现高亮、批注、TXT、PDF、收藏夹、文件重定位、备份�
 | XML 解析 | `quick-xml` | 解析 `container.xml`、OPF 和 NCX，不解析外部实体 |
 | HTML 重写与清洗 | `lol_html` | 注入阅读脚本和 CSP nonce，阻断脚本与非本地资源 |
 | 内容指纹 | SHA-256，Rust `sha2` | 与 SRS 的字节级判重规则一致，可流式计算 |
+| Unicode 排序 | `icu_collator 2.4.0` compiled data | 不依赖系统 ICU，为中文和英文书名/作者生成确定性排序键 |
 | 前端数据请求 | TanStack Query | 管理命令结果、缓存、失效和异步状态 |
 | 阅读器临时状态 | Zustand | 管理当前章节、页状态、侧栏和瞬时 UI 状态 |
 | 路由 | React Router | 区分书库、阅读器及未来的书籍详情 |
@@ -138,6 +139,7 @@ qurner/
 │   ├── epub-core/              # ZIP、OPF、TOC、元数据、资源与指纹
 │   │   └── tests/support/      # Rust EPUB 夹具生成器
 │   ├── storage-core/           # SQLite、迁移、Repository
+│   ├── library-core/           # 导入、书库等应用用例
 │   └── reader-model/           # Locator、进度、设置和 DTO
 ├── fixtures/
 │   ├── epub/
@@ -155,14 +157,18 @@ qurner/
 模块依赖方向：
 
 ```text
-src-tauri -> epub-core / storage-core / reader-model
+src-tauri -> epub-core / storage-core / reader-model / library-core
+library-core -> epub-core / storage-core / reader-model
+storage-core -> reader-model
 src-tauri -X-> React 源码
 React -X-> SQLite / 原始文件系统
 epub-core -X-> Tauri
 storage-core -X-> Tauri
+library-core -X-> Tauri
 ```
 
-`epub-core`、`storage-core` 和 `reader-model` 不依赖 Tauri，以便使用 `cargo test` 单独测试。
+`epub-core`、`storage-core`、`library-core` 和 `reader-model` 不依赖 Tauri，以便
+使用 `cargo test` 单独测试。
 
 ---
 
@@ -231,6 +237,13 @@ EPUB 解析结果保存为带版本号的 `ParsedBook`，不把整本 HTML 或�
 - 所有多步骤写入使用事务。
 - Repository 返回领域对象，不向上层泄漏 `rusqlite::Row`。
 - 数据库错误转换成稳定 `StorageError`，不得自动删除可疑表。
+
+## 5.7 Library Service
+
+- 在 `library-core` 中编排 EPUB Core 与 Storage Service。
+- 负责导入、判重、软移除恢复和书库查询用例。
+- 不依赖 Tauri，不直接创建窗口、发送前端事件或操作 UI。
+- Tauri command 层只负责参数校验、进度事件和 `AppError` 映射。
 
 ---
 
@@ -546,6 +559,19 @@ deleteBookmark(bookId: string, bookmarkId: string): Promise<void>
 
 `startImport` 返回后，Rust 以单本为单位发出 `import-progress` 事件。最终事件必须给出完整 `ImportBatchResult`。
 
+```ts
+type ImportProgressEvent = {
+  jobId: string
+  completed: number
+  total: number
+  item: ImportItemResult
+}
+```
+
+`completed` 是当前已处理书籍数，从 1 增加到 `total`；事件中的 `jobId` 必须与
+`startImport` 返回值一致。`import-completed` 的载荷为完整 `ImportBatchResult`。
+同一任务内按输入顺序逐本处理；不同任务的 CPU 导入并发上限为 2。
+
 ## 9.3 主要 DTO
 
 ```ts
@@ -829,4 +855,7 @@ npm run tauri build
 | 0.2-draft | 2026-11-13 | 历史草案 | 产品正式定名 Qurner，更新应用名、Bundle Identifier、数据目录和 AI 协作文件位置 |
 | 0.3-draft | 2026-11-14 | 历史草案 | 根据 Tauri 校验警告，将 Bundle Identifier 和数据目录标识改为 `com.qurner.reader` |
 | 0.4-draft | 2026-11-14 | 历史草案 | EPUB 测试夹具改由 Rust 测试支持代码生成，避免 M1 引入 JavaScript ZIP 依赖 |
-| 0.5-draft | 2026-11-14 | 当前草案 | 采用固定版本 `rbook 0.7.13` 薄适配层，并保留独立的流式 ZIP 安全预检 |
+| 0.5-draft | 2026-11-14 | 历史草案 | 采用固定版本 `rbook 0.7.13` 薄适配层，并保留独立的流式 ZIP 安全预检 |
+| 0.6-draft | 2026-11-14 | 历史草案 | 新增不依赖 Tauri 的 `library-core` 应用用例层，隔离导入/书库编排与 IPC |
+| 0.7-draft | 2026-11-14 | 历史草案 | 使用 `icu_collator 2.4.0` compiled data 替代不可用的 `unicode-collation` |
+| 0.8-draft | 2026-11-14 | 当前草案 | 明确导入进度事件载荷、逐本顺序和跨任务 CPU 导入并发上限 |

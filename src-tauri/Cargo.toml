@@ -21,3 +21,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 epub-core.workspace = true
 storage-core.workspace = true
 reader-model.workspace = true
+library-core.workspace = true
+uuid.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+rusqlite.workspace = true

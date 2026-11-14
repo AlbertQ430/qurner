@@ -1,8 +1,8 @@
 # Qurner MVP 开发计划
 
-**文档版本：** 0.18-draft  
+**文档版本：** 0.30-draft  
 **适用需求：** `SRS.md` 0.3-draft  
-**适用设计：** `SDS.md` 0.3-draft  
+**适用设计：** `SDS.md` 0.8-draft  
 **目标：** 交付可在 macOS 14+ Apple Silicon 本地运行的 MVP
 
 ---
@@ -196,6 +196,18 @@ npm run tauri dev
 - `cargo test -p storage-core` 和集成测试通过。
 - 1,000 本搜索与排序基准达到 SRS NFR-004。
 - 并发导入不会产生 SQLite busy 错误或重复记录。
+
+### 任务拆分
+
+| 任务 | 内容 | 状态 |
+|---|---|---|
+| `TASK-M2A` | SQLite schema v1、迁移和专用写线程 | `accepted` |
+| `TASK-M2B` | 单本/批量导入、判重、软移除恢复和原子事务 | `accepted` |
+| `TASK-M2C` | 1,000 本书库查询、Unicode 搜索、排序与性能 | `accepted` |
+| `TASK-M2D` | Tauri 命令/进度事件和 M2 集成验收 | `accepted` |
+
+用户已授权 `rusqlite`、`uuid`、`time`，并批准用 `icu_collator 2.4.0` 替代不可用的
+`unicode-collation`。M2A–M2D 全部通过验收，M2 里程碑完成。
 
 ## M3：自定义协议与分页技术门槛
 
@@ -413,7 +425,8 @@ npm run tauri build
 - 用户已特别追认 M0 既有两次 commit；后续任务仍按协作规范禁止未经授权提交。
 - M1A–M1F 全部通过验收，EPUB Core、流式预检、rbook 适配、TOC/封面/权重、
   内容安全、指纹和集成性能已完成。
-- M1 EPUB Core 里程碑完成；M2 尚未启动，等待用户明确开始。
+- M1 EPUB Core 里程碑完成并已提交（`f39d1e6`）。
+- M2A–M2D 已全部通过验收；M2 尚未提交，M3 尚未启动。
 
 ---
 
@@ -438,4 +451,16 @@ npm run tauri build
 | 0.15-draft | 2026-11-14 | 历史草案：M1D 复验通过；M1E 进入 `ready` |
 | 0.16-draft | 2026-11-14 | 历史草案：M1E 退回返工：补齐内联 CSS 远程检测、全部 import 和缺失资源错误 |
 | 0.17-draft | 2026-11-14 | 历史草案：M1E 复验通过；M1F 进入 `ready` |
-| 0.18-draft | 2026-11-14 | M1F 复验通过；M1 EPUB Core 里程碑完成 |
+| 0.18-draft | 2026-11-14 | 历史草案：M1F 复验通过；M1 EPUB Core 里程碑完成 |
+| 0.19-draft | 2026-11-14 | 历史草案：提交 M1；创建 M2A–M2D 任务草案，暂未启动实现 |
+| 0.20-draft | 2026-11-14 | 历史草案：用户授权 M2 依赖；`TASK-M2A` 进入 `ready` |
+| 0.21-draft | 2026-11-14 | 历史草案：M2A 通过验收；等待启动 M2B |
+| 0.22-draft | 2026-11-14 | 历史草案：用户批准 icu_collator 替代；M2B 进入 `ready` |
+| 0.23-draft | 2026-11-14 | 历史草案：M2B 退回返工：修正并发恢复语义和恢复前指纹校验 |
+| 0.24-draft | 2026-11-14 | 历史草案：M2B 复验通过；等待启动 M2C |
+| 0.25-draft | 2026-11-14 | 历史草案：M2C 进入 `ready`，固定查询 DTO、搜索转义与 1,000 本性能门槛 |
+| 0.26-draft | 2026-11-14 | 历史草案：M2C 通过验收；等待用户授权启动 M2D |
+| 0.27-draft | 2026-11-14 | 历史草案：用户授权启动 M2D；细化 Tauri 命令、事件、错误和应用状态验收 |
+| 0.28-draft | 2026-11-14 | 历史草案：M2D 首轮验收退回返工：路径保真、主线程阻塞、错误类型和初始化失败测试 |
+| 0.29-draft | 2026-11-14 | 历史草案：M2D 第二轮验收：四项修复通过；`softRemoveBook` 仍同步阻塞主线程，继续返工 |
+| 0.30-draft | 2026-11-14 | M2D 第三轮复验通过；M2A–M2D 全部 accepted，M2 里程碑完成 |

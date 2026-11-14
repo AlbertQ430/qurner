@@ -1,8 +1,16 @@
 //! Qurner Tauri 应用入口。
 //!
-//! M0 只提供最小应用壳：初始化 tracing 日志、启动 Tauri 窗口。
-//! 命令层、协议层和业务服务在后续任务按 SDS 增加。
+//! M2D 将 library-core 接入 Tauri：启动时初始化应用数据目录与数据库，暴露
+//! startImport / listBooks / softRemoveBook 三个命令及导入事件。
 
+pub mod commands;
+pub mod dto;
+pub mod error;
+pub mod state;
+
+pub use error::{AppError, AppErrorCode};
+
+use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
 /// 启动 Qurner 应用。
@@ -12,7 +20,7 @@ pub fn run() {
         std::process::exit(1);
     }
 
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Qurner 启动",);
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Qurner 启动");
 
     if let Err(error) = build_app().run(tauri::generate_context!()) {
         tracing::error!(%error, "Qurner 运行失败");
@@ -21,15 +29,34 @@ pub fn run() {
 }
 
 fn build_app() -> tauri::Builder<tauri::Wry> {
-    tauri::Builder::default().setup(|_app| {
-        tracing::info!(
-            epub_core = epub_core::CRATE_NAME,
-            storage_core = storage_core::CRATE_NAME,
-            reader_model = reader_model::CRATE_NAME,
-            "领域 crate 已链接"
-        );
-        Ok(())
-    })
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            commands::start_import,
+            commands::list_books,
+            commands::soft_remove_book,
+        ])
+        .setup(|app| {
+            let state = match app.path().app_data_dir() {
+                Ok(directory) => state::initialize_state(&directory),
+                Err(_) => {
+                    tracing::error!(
+                        stage = "app_data_dir",
+                        code = AppErrorCode::Storage.as_str(),
+                        "应用数据目录解析失败"
+                    );
+                    state::AppState::failed(AppError::storage())
+                }
+            };
+            app.manage(state);
+            tracing::info!(
+                epub_core = epub_core::CRATE_NAME,
+                storage_core = storage_core::CRATE_NAME,
+                reader_model = reader_model::CRATE_NAME,
+                library_core = library_core::CRATE_NAME,
+                "领域 crate 已链接"
+            );
+            Ok(())
+        })
 }
 
 fn init_tracing() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
