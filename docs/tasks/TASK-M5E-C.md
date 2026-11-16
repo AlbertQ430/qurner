@@ -1,6 +1,6 @@
 # TASK-M5E-C：M5 阅读器闭环总验收
 
-**状态：** blocked
+**状态：** accepted
 
 **里程碑：** M5
 
@@ -10,7 +10,7 @@
 
 **创建日期：** 2026-11-15
 
-**依赖：** TASK-M5E-A、TASK-M5E-B、TASK-M5R1、TASK-M5R2 accepted
+**依赖：** TASK-M5E-A、TASK-M5E-B、TASK-M5R1、TASK-M5R2、TASK-M5R3、TASK-M5R4 accepted
 
 ## 1. 目标
 
@@ -215,7 +215,7 @@ npm run tauri build
 
 - macOS 26.6 arm64；Qurner.app（M5R2 后 `npm run tauri build` 构建，7.92 MiB）。
 - 隔离 HOME：`/tmp/qurner-acceptance/m5ec2/home`（数据目录仅合成书“中文嵌套图片”，无真实
-  用户数据）；合成 EPUB 源文件 `/Users/quzhuoyan/qurner-acceptance-fixtures/cn-nested.epub`。
+  用户数据）；合成 EPUB 源文件 `$HOME/qurner-acceptance-fixtures/cn-nested.epub`。
 - 截图目录：`/tmp/qurner-acceptance/shots2/`。
 - 导入步骤说明：本轮尝试在新隔离 HOME 中重新导入合成 EPUB 3 次，文件对话框的 CGEvent
   键盘输入/焦点在当前桌面环境下不稳定（事件被 Finder/Harness 抢占或未送达），导入未完成；
@@ -365,3 +365,254 @@ PLAN/ADR/其他任务、数据库 schema、真实用户书库；未提交 commit
 - M5E-C 保持 `blocked`。
 - `TASK-M5R3` 为 `draft`，等待用户明确启动。
 - M5R3 accepted 后，第三次 M5E-C 必须补齐全部未验证证据才可通过。
+
+## 11. 第三轮最终验收报告（2026-11-16，基线 commit 5da5013）
+
+**结论：** 上一轮缺失证据大部分已补齐（真实导入、失效/软移除、正文图片、书签跨设置、
+资源型 99MB、1000 本书库搜索、kill -9 丢失窗口 ≤2s、门禁全通过）；**发现 1 项新缺陷**
+（文本型 106MB 单章 EPUB 导入失败，`LimitExceeded`）；**断网测试未执行**（需系统网络
+权限，已向用户申请）；真实 1000 本“逐本导入”未执行（搜索/列表使用隔离 DB 预置，打开
+预置书籍因 manifest 不一致失败，属预置方法限制，非产品缺陷）。详细证据见
+`/tmp/qurner-acceptance/shots3/`。
+
+**环境：** macOS 26.6 arm64；Qurner.app（commit 5da5013 构建）；隔离 HOME
+`/tmp/qurner-acceptance/final/home`（全新空目录启动）；合成 EPUB 夹具
+`$HOME/qurner-acceptance-fixtures/`（cn-nested、cn-image、book-100mb-resource、book-100mb
+文本型、thousand/ 1,000 本）。所有操作经真实 app 文件对话框/鼠标/键盘完成，非前端 mock。
+
+### 11.1 逐项补齐结果
+
+| # | 要求 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | 全新隔离 HOME 真实导入合成 EPUB | **通过**：空库启动→文件对话框→搜索选择 `cn-nested.epub`→“已导入 1 已恢复 0 重复 0 失败 0”；DB `books` active 记录、`imported_at=15:13:14Z` | 01-empty、02/03 面板、04 搜索、05 结果 |
+| 2 | AC-040 失效文件与软移除 | **通过**：移走源文件打开→“原始文件已被移动、删除或无法读取。”；恢复后可重新打开；卡片“移除”→确认对话框→`lifecycle=removed`、书库移除；再次导入同文件显示“已恢复”并 active | 09-missing、10/11 对话框、12-removed（DB removed）、19-reimport（DB active） |
+| 3 | 真实正文图片显示 | **通过**：生成 200×120 红色 PNG 合成书 `cn-image.epub`，真实导入→打开“图片章”，图片完整显示（红块） | 28-image-import、29-image-reader |
+| 4 | 书签跨字号/主题/模式/窗口变化跳回原文 | **通过**：第一章创建书签（excerpt/DB spineIndex=0,textOffset=18）→设置字号 110%、黑夜、滚动模式→打开书签点击→跳回第一章 12.5% 原文；设置保持 | 07-bookmark（摘录）、08-bookmark-jump |
+| 5 | 真实 100 MB EPUB 导入与阅读 | **部分通过/发现缺陷**：资源型 99.0MB（单资源 99MB、正文小）真实导入成功（“已导入 1”，`imported_at=15:12:12Z`）→打开“大资源章”正常，打开总耗时约 6.2s（含 6s 固定等待，界面可交互）；**文本型 106MB 单章 EPUB 导入失败**“文件不是有效或完整的 EPUB”，Rust 探针 `epub-core` 返回 `EpubError { code: LimitExceeded }`（0ms，zip/XML 结构已用 Python 验证有效）→ 缺陷 | 15/16/17（99MB 导入）、18（打开）、14（106MB 失败） |
+| 6 | 真实 app 中 1,000 本搜索和打开（可用隔离 DB 预置，非 mock） | **部分通过**：隔离 DB 预置 1,000 条真实 `thousand/book-*.epub` 记录（非前端 mock）；启动显示 1,003 本网格；搜索“规模书 0999”约 3.5s（含逐字输入）得到单结果；**打开预置书籍失败**“文件内容与书库记录不一致，需要重新导入。”——预置行复制了其它书的 manifest，与真实文件不一致，属预置方法限制；未执行真实逐本导入 1,000 本 | 22-1000-library、25-search1000c、26-scale-reader |
+| 7 | 真实断网核心流程 | **未执行**：关闭系统网络需要权限，未擅自修改宿主网络；当前证据为 `lsof -a -p <qurner> -i` 无 TCP/UDP 连接。**申请用户授权关闭网络后补测** | NET_EMPTY（lsof 无输出） |
+| 8 | 移动位置后立即 kill -9，丢失窗口 ≤2s | **通过**：打开 cn-nested（恢复 12.5%）→目录跳章（位置变化）后 0.24s `kill -9`（T_KILL=23:13:52.79）；最后成功保存 `15:13:45.430Z`（GlobalProgression 0.125、spineIndex 0、textOffset 18）；重启打开恢复原 Locator（第一章 12.5%），丢失窗口 **0.24s ≤ 2s**；重启后 `15:14:02.647Z` 再次保存恢复位置 | 21-kill-recover、DB `reading_states` 查询 |
+| 9 | 全部门禁与证据 | **通过**（见 11.3） | 见下 |
+
+### 11.2 缺陷清单（本轮新增）
+
+| 级别 | 现象 | 复现 | 证据 |
+|---|---|---|---|
+| MAJOR/P1 | 文本型 106MB 单章 EPUB 导入失败，前端固定提示“文件不是有效或完整的 EPUB”；`epub-core::parse_epub` 返回 `LimitExceeded`，但该文件 zip/XML 结构有效（Python 验证），且资源型 99MB 可导入 | 生成单章 106MB XHTML（stored）EPUB→真实 app 导入 | `/tmp/qurner-acceptance/big/book-100mb.epub`、`shots3/14-100mb-result.png`、探针输出 `ERR EpubError { code: LimitExceeded }` |
+
+说明：疑似 epub-core 针对单章文本索引/解压文本规模的隐藏上限；需另开修复任务明确上限或
+优化大文本解析（本任务未修改产品实现）。
+
+### 11.3 门禁（本轮独立执行）
+
+| 命令 | 退出码 | 结果 |
+|---|---:|---|
+| `npm run check` | 0 | tsc、Biome、Vitest 16 文件 169 tests |
+| `npm run test:e2e` | 0 | Playwright WebKit 45 passed |
+| `npm run build` | 0 | 生产前端构建成功 |
+| `cargo fmt --all --check` | 0 | 通过 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 | 无 warning |
+| `cargo test --workspace` | 0 | 300 passed，0 failed，1 ignored |
+| `npm run tauri build` | 0 | Qurner.app 7.92 MiB |
+| `git diff --check` | 0 | 通过 |
+
+### 11.4 未验证项与申请
+
+- **真实断网核心流程**：需要关闭系统网络（需用户/系统权限），未执行；请授权后补测
+  （保持隔离 HOME 与合成书）。
+- 真实 1,000 本逐本导入（文件选择批量自动化限制）；搜索/列表用隔离 DB 预置已验证，
+  打开预置书失败为 manifest 预置不一致（非产品缺陷）。
+- 100MB 文本型失败的修复（缺陷记录，不修改产品实现）。
+- 触控板/窗口尺寸变化下书签定位的逐项截图（字号/主题/模式已验证）。
+
+**修改文件：** `docs/tasks/TASK-M5E-C.md`（追加本节）；未修改产品实现、SRS/SDS/PLAN/ADR/
+其他任务、数据库 schema、真实用户书库；未提交 commit。
+
+### 第三轮审查（最终证据复验）
+
+**结论：** 阻塞
+
+**审查日期：** 2026-11-16
+
+**独立执行的检查：**
+
+- `npm run check`：通过，14 个文件、169 项测试；仍有上一任务记录的 1 条 `act(...)` MINOR。
+- `npm run test:e2e`：通过，WebKit 45 项。
+- `cargo fmt --all --check`：通过。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo test --workspace`：通过，300 passed、0 failed、1 ignored。
+- `npm run build`、`npm run tauri build`：通过，`Qurner.app` 7.92 MiB。
+- 复核 `book-100mb.epub`：106,041,723 B，ZIP 结构有效，单章 XHTML 106,040,153 B；
+  内容安全扫描 `MAX_SCAN_BYTES=16 MiB`，会在索引正文前返回 `LimitExceeded`。
+- 复核隔离数据库：确认合成书、图片书、99 MB 资源书和 1,000 本规模记录存在。
+- `git diff --check`：通过。
+
+**问题：**
+
+| 严重级别 | 文件/位置 | 问题 | 处理 |
+|---|---|---|---|
+| MAJOR | `crates/epub-core/src/content.rs` / `MAX_SCAN_BYTES` | 有效 106 MB、单章正文为主的 EPUB 因单个 XHTML 超过 16 MiB 扫描上限而导入失败；这与 100 MB 验收规模直接冲突。资源型 99 MB 成功不足以覆盖大文本分布。 | 创建 `TASK-M5R4`：在保持安全扫描和内存上限的前提下支持 100 MB 大文本章节，完成真实 app 导入/打开及 ≤10s 证据。 |
+| MAJOR | M5E-C / 1,000 本真实 app 打开 | 预置 1,000 条记录可搜索，但预置 metadata 与真实文件不一致，打开返回 `E_SOURCE_CHANGED`。这是测试数据准备错误，但该必需场景仍未通过。 | M5R4 后使用与真实文件一致的隔离数据库重新验证 1,000 本搜索与至少一本书打开。 |
+
+**用户决定：**
+
+- 真实断网暂不测试，作为明确豁免；AC-220 接受静态无网络依赖、CSP/capability 检查和
+  运行时 `lsof` 无连接的组合证据，不再阻塞本轮。
+- 真实 1,000 本逐本 UI 导入不作为必需证据；允许隔离数据库预置，但搜索和打开必须是真实 app。
+
+**AC 结果：**
+
+- AC-040/070/080/090/100/110/120/130/160/170/190/210：真实 app 证据通过。
+- AC-220：按用户决定豁免真实断网，替代证据通过。
+- 100 MB 规模和 1,000 本打开：未通过，M5E-C 阻塞。
+
+**后续：**
+
+- `TASK-M5R4` 为 `draft`，修复大文本 100 MB 导入。
+- M5R4 accepted 后再次运行 M5E-C，仅需补齐受影响证据与 1,000 本正确预置打开。
+
+## 12. 第四轮复验启动（2026-11-17）
+
+**状态：** ready
+
+**依赖关闭情况：**
+
+- `TASK-M5R1`、`TASK-M5R2`、`TASK-M5R3`、`TASK-M5R4` 均已 accepted。
+- 前三次 M5E-C 报告保留为历史证据，不删除、不改写其结论。
+
+**本轮范围：**
+
+1. 使用当前代码重新构建 `Qurner.app`，在全新隔离 HOME 中真实导入
+   `/tmp/qurner-acceptance/big/book-100mb.epub`。
+2. 记录导入开始和完成时刻、数据库 `imported_at` 及截图；必须满足导入不超过 10 秒，
+   打开首章并显示正文，导入前后文件大小和 SHA-256 不变。
+3. 重新生成与 1,000 个真实合成文件逐一一致的隔离数据库记录；不得再复制其他书的
+   manifest。真实 app 中搜索“规模书 0999”，至少打开一本书并显示正文，不得出现
+   `E_SOURCE_CHANGED`。
+4. 重新运行第 6 节全部门禁，更新需求—AC—测试追踪和遗留风险。
+
+**无需重复：**
+
+- M5E-C 第三轮已通过且不受 M5R4 影响的真实 app 场景和截图可继续引用，但必须在报告中
+  明确标注为前轮证据。
+- 真实断网继续按用户此前决定豁免，采用无网络依赖检查、CSP/capability 和运行时 `lsof`
+  组合证据。
+- 真实 1,000 本逐本文件选择导入不作为必需证据；本轮只要求记录与真实文件一致、可搜索且
+  可真实打开的隔离预置数据库。
+
+**完成方式：**
+
+- 本任务只追加验收报告，不直接修改产品实现。
+- 完成后将状态改为 `ready_for_review`，列出本轮新增证据、命令退出码、AC 结果和未验证项，
+  等待 Codex 最终验收。
+
+## 13. 第四轮复验结果（2026-11-17）
+
+**环境：** macOS 26.6 arm64；commit 5da5013 + M5R4 CSS 流式扫描修复；隔离 HOME
+`/tmp/qurner-acceptance/final2/home`（全新目录）；真实 `Qurner.app`
+（`npm run tauri build` 当前构建）；证据截图 `/tmp/qurner-acceptance/shots4/`。
+
+### 13.1 106 MB 单章 EPUB（当前构建）
+
+| 项 | 证据 | 结果 |
+|---|---|---|
+| 文件 | `book-100mb.epub`，106,041,723 B，单章 XHTML 106,040,153 B | 与第三轮一致 |
+| 导入 | Enter 触发 `00:55:52.642` → DB `imported_at=16:55:53Z`、结果完成 `00:55:54.805` | **约 2.16 秒 ≤ 10 秒**（计时方法：触发时刻与 DB imported_at/结果出现时间差） |
+| 截图 | `shots4/03-100mb-imported.png`（导入成功）、`shots4/04-100mb-reader.png`（首章正文） | 首章“大文件”正文显示 |
+| SHA-256 | 前后均 `d6abec99c237664b2264b820fd2af94bf18c75eaeaa851c6e207b38d7e6ccfb7`；大小不变 | 原文只读 |
+| 性能观察 | 打开首章正文显示约 32 秒（刷新率/大文本渲染） | 可打开；打开耗时非本轮门槛 |
+
+### 13.2 1,000 本一致隔离数据库
+
+- **生成方式**：Rust 工具对 `thousand/book-*.epub`（1,000 个真实文件）逐本执行
+  `epub-core::parse_epub` + `fingerprint_file`，输出每本的 ParsedBook JSON 与 SHA-256
+  （`/tmp/qurner-acceptance/final/scale.jsonl`）；Python 以这些 **真实解析结果** 写入隔离
+  DB，未复制其它书的 manifest。
+- **DB**：`/tmp/qurner-acceptance/final2/home/.../reader.sqlite3`，`books` 共 1,001 条
+  active（1,000 规模 + 百兆大书）；`规模书 0999 / 规模作者` 存在；`manifest_version=1`。
+- **真实 app**：搜索“规模书 0999”（逐字输入）约 3.5 秒得到单结果
+  （`shots4/01-search1000.png`）；打开该卡显示“规模书 0999 / 规模测试正文。”
+  （`shots4/02-scale-reader.png`），**未出现 `E_SOURCE_CHANGED`**。
+- 性能：打开耗时约 1–2 秒（固定等待 5s 内完成）。
+
+### 13.3 门禁（本轮独立执行）
+
+| 命令 | 退出码 | 结果 |
+|---|---:|---|
+| `npm run check` | 0 | tsc、Biome、Vitest 16 文件 169 tests |
+| `npm run test:e2e` | 0 | Playwright WebKit 45 passed |
+| `npm run build` | 0 | 生产前端构建成功 |
+| `cargo fmt --all --check` | 0 | 通过 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 | 无 warning |
+| `cargo test --workspace` | 0 | 317 passed，0 failed，1 ignored |
+| `npm run tauri build` | 0 | Qurner.app 重建成功 |
+| `git diff --check` | 0 | 通过 |
+
+### 13.4 AC 追踪更新（本轮范围）
+
+| AC | 结果 | 证据 |
+|---|---|---|
+| AC-002 / AC-010（有效导入、书库记录） | 通过 | 本轮 106 MB 导入（13.1）；1,000 本记录（13.2） |
+| AC-210（打开书籍） | 通过 | 106 MB 首章正文（04）、规模书 0999 正文（02） |
+| NFR-006（原报告误写为 NFR-003；100 MB 导入 ≤10s） | 通过 | 约 2.16 秒（13.1） |
+| 1,000 本列表/搜索/打开（NFR 规模） | 通过 | 1,001 条 active、搜索 0999、打开无 E_SOURCE_CHANGED（13.2） |
+| AC-040/070/080/090/100/110/120/130/160/170/190 | 引用第三轮证据 | `shots3/` 及第 11 节报告（未受 M5R4 CSS 修复影响） |
+| AC-220（离线） | 豁免 + 组合证据 | 用户决定豁免真实断网；本轮 `lsof -a -p <qurner> -i` 无连接，CSP/capability 静态检查见第三轮 |
+
+### 13.5 遗留风险
+
+- 106 MB 单章首屏正文显示约 32 秒（可打开，但大章渲染慢）；建议后续按需分段渲染。
+- 真实断网仍按用户决定豁免；未执行真实 1,000 本逐本 UI 导入（允许隔离 DB 预置）。
+- 本轮未再逐项重复第三轮已通过的真实 app 场景，按任务要求引用前轮截图与报告。
+
+**修改文件：** `docs/tasks/TASK-M5E-C.md`（追加本节）；未修改产品代码、SRS/SDS/PLAN/ADR、
+数据库 schema、真实书库；未提交 commit。
+
+## 14. Codex 最终验收（2026-11-17）
+
+**结论：** 通过
+
+**审查日期：** 2026-11-17
+
+**独立执行的检查：**
+
+- `npm run check`：通过；14 个测试文件、169 项测试通过。
+- `npm run test:e2e`：沙箱外 Playwright WebKit 45/45 通过。
+- `npm run build`：通过。
+- `cargo fmt --all --check`：通过。
+- `cargo clippy --workspace --all-targets -- -D warnings`：通过。
+- `cargo test --workspace`：317 passed、0 failed、1 ignored。
+- `npm run tauri build`：通过，`Qurner.app` 为 7.92 MiB。
+- `git diff --check`：通过。
+- 隔离数据库复核：`books` 共 1,001 条且全部 active；`规模书 0999` 的作者、指纹、源路径
+  和完整 manifest 与 `scale.jsonl` 中真实解析结果一致；数据库 integrity check 为 `ok`。
+- 截图复核：1,000 本搜索命中单本、`规模书 0999` 正文、106 MB 导入成功和 106 MB 首章
+  正文均与报告一致。
+- SHA-256 复核：106 MB 文件为
+  `d6abec99c237664b2264b820fd2af94bf18c75eaeaa851c6e207b38d7e6ccfb7`，导入前后证据一致。
+- 真实 app 键盘复验：在隔离 HOME 打开《中文嵌套图片》，滚动模式 Right 从第一章进入
+  第二章 100%，Left 返回第一章 11.8%；分页模式 Right 翻至第二章；Esc 关闭阅读设置，
+  再次 Esc 退出沉浸式。
+- 真实 app 当前构建重新导入并打开 106 MB 单章书；1,000 本搜索和打开无
+  `E_SOURCE_CHANGED`。
+
+**问题：**
+
+- 本轮未发现 P0 BLOCKER 或 MAJOR。
+- 报告中的 100 MB 性能追踪编号由误写的 `NFR-003` 更正为 SRS 的 `NFR-006`；NFR-003
+  冷启动门槛继续引用 M4D 已验收的 1,000 本基准。
+
+**AC 结果：**
+
+- AC-040、AC-070、AC-080、AC-090、AC-100、AC-110、AC-120、AC-130、AC-160、AC-170、
+  AC-190、AC-200、AC-210：**通过**。
+- AC-220：**通过**。按用户决定豁免真实断网，保留静态无网络依赖、CSP/capability 与运行时
+  `lsof` 组合证据。
+- 100 MB 规模与 NFR-006：**通过**。106 MB 真实导入约 2.16 秒，首章可打开，原文不变。
+- 1,000 本规模：**通过**。真实 app 可搜索与打开一致预置书籍；NFR-003 冷启动继续采用
+  M4D 已验收的 p95 627 ms。
+
+**里程碑结论：**
+
+- `TASK-M5E-C` 通过，M5 阅读器闭环完成。
+- 进入 M6 加固与发布前仍需由用户明确启动 M6；本任务不启动 M6。
