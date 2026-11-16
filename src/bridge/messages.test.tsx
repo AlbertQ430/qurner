@@ -9,6 +9,11 @@ import {
 
 const SESSION_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TOKEN = "a".repeat(32);
+const DEFAULT_SETTINGS = {
+  mode: "paged",
+  fontScale: 1,
+  theme: "day",
+} as const;
 
 function locator(overrides: Record<string, unknown> = {}) {
   return {
@@ -28,7 +33,7 @@ function validInit(overrides: Record<string, unknown> = {}) {
     sessionId: SESSION_ID,
     sessionToken: TOKEN,
     type: "reader:init",
-    payload: { mode: "paged", initialLocator: null },
+    payload: { spineIndex: 0, settings: DEFAULT_SETTINGS, initialLocator: null },
     ...overrides,
   };
 }
@@ -46,10 +51,89 @@ function pageState(overrides: Record<string, unknown> = {}) {
 describe("reader message schema", () => {
   it("accepts init, ready, turn-page and error", () => {
     const init = createReaderMessage("reader:init", SESSION_ID, TOKEN, {
-      mode: "scrolling",
+      spineIndex: 1,
+      settings: { mode: "scrolling", fontScale: 1, theme: "day" },
       initialLocator: locator({ textOffset: 5 }),
     });
     expect(parseReaderMessage(init)).toEqual(init);
+
+    for (const spineIndex of [0, 1]) {
+      const logicalInit = parseReaderMessage(
+        validInit({
+          payload: {
+            spineIndex,
+            settings: { mode: "paged", fontScale: 1, theme: "day" },
+            initialLocator: null,
+          },
+        }),
+      );
+      expect(logicalInit).not.toBeNull();
+    }
+    const withoutSpineIndex = parseReaderMessage(
+      validInit({ payload: { settings: DEFAULT_SETTINGS, initialLocator: null } }),
+    );
+    expect(withoutSpineIndex).toBeNull();
+    for (const spineIndex of [-1, 1.5]) {
+      const invalid = parseReaderMessage(
+        validInit({
+          payload: {
+            spineIndex,
+            settings: { mode: "paged", fontScale: 1, theme: "day" },
+            initialLocator: null,
+          },
+        }),
+      );
+      expect(invalid).toBeNull();
+    }
+
+    for (const initialNavigation of [
+      { kind: "start" },
+      { kind: "end" },
+      { kind: "fragment", fragment: "section-1" },
+    ] as const) {
+      const navigationInit = createReaderMessage("reader:init", SESSION_ID, TOKEN, {
+        spineIndex: 0,
+        settings: DEFAULT_SETTINGS,
+        initialLocator: null,
+        initialNavigation,
+      });
+      expect(parseReaderMessage(navigationInit)).toEqual(navigationInit);
+    }
+
+    const locatorAndNavigation = parseReaderMessage(
+      validInit({
+        payload: {
+          mode: "paged",
+          initialLocator: locator(),
+          initialNavigation: { kind: "start" },
+        },
+      }),
+    );
+    expect(locatorAndNavigation).toBeNull();
+    for (const fragment of ["", "a".repeat(2_049), "a\0b", "a\\b", "#x"]) {
+      const invalid = parseReaderMessage(
+        validInit({
+          payload: {
+            spineIndex: 0,
+            settings: DEFAULT_SETTINGS,
+            initialLocator: null,
+            initialNavigation: { kind: "fragment", fragment },
+          },
+        }),
+      );
+      expect(invalid).toBeNull();
+    }
+    const unknownKind = parseReaderMessage(
+      validInit({
+        payload: {
+          spineIndex: 0,
+          settings: DEFAULT_SETTINGS,
+          initialLocator: null,
+          initialNavigation: { kind: "middle" },
+        },
+      }),
+    );
+    expect(unknownKind).toBeNull();
 
     const ready = createReaderMessage("reader:ready", SESSION_ID, TOKEN, {
       engineVersion: "0.2.0",
@@ -78,12 +162,14 @@ describe("reader message schema", () => {
       {
         ...validInit(),
         type: "reader:update-settings",
-        payload: { mode: "scrolling" },
+        payload: {
+          settings: { mode: "scrolling", fontScale: 1.2, theme: "night" },
+        },
       },
       {
         ...validInit(),
         type: "reader:capture-locator",
-        payload: {},
+        payload: { captureRequestId: 1 },
       },
     ]) {
       expect(parseReaderMessage(message)).toEqual(message);
@@ -102,6 +188,19 @@ describe("reader message schema", () => {
       },
     };
     expect(parseReaderMessage(location)).toEqual(location);
+
+    const capture = {
+      ...validInit(),
+      type: "reader:location-changed",
+      payload: {
+        reason: "capture",
+        captureRequestId: 9,
+        locator: locator({ textOffset: 12 }),
+        mode: "paged",
+        ...pageState({ pageIndex: 1, pageCount: 3, atStart: false }),
+      },
+    };
+    expect(parseReaderMessage(capture)).toEqual(capture);
 
     const page = {
       ...validInit(),
@@ -157,6 +256,50 @@ describe("reader message schema", () => {
         }),
       ).toBeNull();
     }
+  });
+
+  it("enforces captureRequestId only on capture messages", () => {
+    expect(
+      parseReaderMessage({
+        ...validInit(),
+        type: "reader:capture-locator",
+        payload: {},
+      }),
+    ).toBeNull();
+    for (const captureRequestId of [0, -1, 1.5, "1"]) {
+      expect(
+        parseReaderMessage({
+          ...validInit(),
+          type: "reader:capture-locator",
+          payload: { captureRequestId },
+        }),
+      ).toBeNull();
+    }
+    expect(
+      parseReaderMessage({
+        ...validInit(),
+        type: "reader:location-changed",
+        payload: {
+          reason: "capture",
+          locator: locator(),
+          mode: "paged",
+          ...pageState({ pageIndex: 0, pageCount: 1, atStart: true, atEnd: true }),
+        },
+      }),
+    ).toBeNull();
+    expect(
+      parseReaderMessage({
+        ...validInit(),
+        type: "reader:location-changed",
+        payload: {
+          reason: "turn",
+          captureRequestId: 1,
+          locator: locator(),
+          mode: "paged",
+          ...pageState({ pageIndex: 0, pageCount: 1, atStart: true, atEnd: true }),
+        },
+      }),
+    ).toBeNull();
   });
 
   it("rejects invalid page state and directions", () => {

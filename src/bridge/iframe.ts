@@ -12,7 +12,11 @@ export type IframeBridgeState = "waiting" | "ready" | "error" | "closed";
 export interface IframeBridgeConfig {
   sessionId: string;
   sessionToken: string;
-  /** 预期父窗口 origin；由引擎从 document.referrer 计算。 */
+  /**
+   * 预期父窗口 origin；由引擎从 document.referrer 计算。
+   * 为空表示 referrer 不可用（例如 packaged no-referrer），
+   * 首次来自 window.parent 的合法 init 时学习父 origin。
+   */
   parentOrigin: string;
   engineVersion: string;
   timeoutMs?: number;
@@ -39,12 +43,12 @@ export class IframeBridge {
   private readonly onStateChange?: (state: IframeBridgeState) => void;
   private readonly engine?: ReaderEngine;
   private readonly listener: (event: MessageEvent) => void;
+  private parentOrigin: string;
 
   constructor(config: IframeBridgeConfig, deps: IframeBridgeDeps = {}) {
     if (
       !isValidSessionId(config.sessionId) ||
       !/^[0-9a-f]{32,64}$/.test(config.sessionToken) ||
-      config.parentOrigin.length === 0 ||
       config.engineVersion.length === 0
     ) {
       throw new Error("invalid reader iframe config");
@@ -62,6 +66,7 @@ export class IframeBridge {
       });
     this.onStateChange = deps.onStateChange;
     this.engine = deps.engine;
+    this.parentOrigin = config.parentOrigin;
     this.listener = (event) => this.handleMessage(event);
     this.listenTarget.addEventListener("message", this.listener);
     this.timeout = setTimeout(() => {
@@ -105,7 +110,7 @@ export class IframeBridge {
         type,
         payload,
       });
-      this.postToParent(message, this.config.parentOrigin);
+      this.postToParent(message, this.parentOrigin);
     } catch {
       // 校验失败不发送，避免污染既有状态。
     }
@@ -141,9 +146,6 @@ export class IframeBridge {
     if (event.source !== this.parentWindow) {
       return;
     }
-    if (event.origin !== this.config.parentOrigin) {
-      return;
-    }
     const message = parseReaderMessage(event.data);
     if (!message) {
       return;
@@ -154,6 +156,19 @@ export class IframeBridge {
     ) {
       return;
     }
+    if (this.parentOrigin.length === 0) {
+      // referrer 不可用（packaged no-referrer）：只允许来自父窗口的合法 init
+      // 学习父 origin；其他消息或非法 origin 一律丢弃。
+      if (message.type !== "reader:init") {
+        return;
+      }
+      if (event.origin.length === 0 || event.origin === "null") {
+        return;
+      }
+      this.parentOrigin = event.origin;
+    } else if (event.origin !== this.parentOrigin) {
+      return;
+    }
 
     if (message.type === "reader:init") {
       if (this.state !== "waiting") {
@@ -161,7 +176,13 @@ export class IframeBridge {
       }
       try {
         if (this.engine) {
-          this.engine.start(message.payload.mode, message.payload.initialLocator, this.callbacks());
+          this.engine.start(
+            message.payload.settings,
+            message.payload.initialLocator,
+            message.payload.initialNavigation ?? null,
+            message.payload.spineIndex,
+            this.callbacks(),
+          );
         } else {
           this.markReady();
         }
@@ -183,10 +204,10 @@ export class IframeBridge {
         this.engine?.goTo(message.payload.locator);
         break;
       case "reader:update-settings":
-        this.engine?.updateMode(message.payload.mode);
+        this.engine?.applySettings(message.payload.settings);
         break;
       case "reader:capture-locator":
-        this.engine?.captureLocator();
+        this.engine?.captureLocator(message.payload.captureRequestId);
         break;
       case "reader:ready":
       case "reader:error":

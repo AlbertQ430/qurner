@@ -207,7 +207,10 @@ fn write_book(directory: &Path, name: &str, bytes: &[u8]) -> PathBuf {
 
 fn create_session(registry: &SessionRegistry, path: &Path) -> String {
     let book = parse_epub(path).expect("parse book");
-    registry.create(path, book).expect("create session").token
+    registry
+        .create("book-1", path, book)
+        .expect("create session")
+        .token
 }
 
 fn uri(token: &str, path: &str) -> String {
@@ -324,7 +327,9 @@ fn unknown_closed_and_malformed_tokens_are_404() {
     let book_path = write_book(directory.path(), "book.epub", &build_epub("正文", &[]));
     let registry = SessionRegistry::new();
     let book = parse_epub(&book_path).expect("parse");
-    let handle_value = registry.create(&book_path, book).expect("session");
+    let handle_value = registry
+        .create("book-1", &book_path, book)
+        .expect("session");
     let token = handle_value.token.clone();
 
     assert_eq!(
@@ -482,7 +487,9 @@ fn rejects_oversized_declared_resource_and_corrupted_entry() {
     forge_central_size(&mut bytes, "OEBPS/huge.bin", 300 * 1024 * 1024);
     fs::write(&oversized, &bytes).expect("write forged");
     let registry = SessionRegistry::new();
-    let handle_value = registry.create(&oversized, book).expect("session");
+    let handle_value = registry
+        .create("book-1", &oversized, book)
+        .expect("session");
     let response = handle(
         &registry,
         "GET",
@@ -496,7 +503,9 @@ fn rejects_oversized_declared_resource_and_corrupted_entry() {
     let mut bytes = fs::read(&corrupted).expect("read");
     corrupt_entry_data(&mut bytes, "OEBPS/chapter1.xhtml");
     fs::write(&corrupted, &bytes).expect("write corrupted");
-    let handle_value = registry.create(&corrupted, book).expect("session");
+    let handle_value = registry
+        .create("book-1", &corrupted, book)
+        .expect("session");
     let response = handle(
         &registry,
         "GET",
@@ -628,7 +637,9 @@ fn rejects_invalid_manifest_mime_with_fixed_500() {
     item.media_type = "not-a-mime".to_string();
 
     let registry = SessionRegistry::new();
-    let handle_value = registry.create(&book_path, book).expect("session");
+    let handle_value = registry
+        .create("book-1", &book_path, book)
+        .expect("session");
     let response = handle(
         &registry,
         "GET",

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { type ReaderSettings, readerSettingsSchema } from "./ipc-schemas";
+
 /** 阅读消息协议版本。 */
 export const PROTOCOL_VERSION = 1;
 
@@ -16,6 +18,24 @@ const sessionIdSchema = z
   );
 const sessionTokenSchema = z.string().regex(/^[0-9a-f]{32,64}$/);
 
+/** 初始章节内导航；fragment 只作为 DOM id 使用。 */
+export const readerNavigationSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("start") }),
+  z.strictObject({ kind: z.literal("end") }),
+  z.strictObject({
+    kind: z.literal("fragment"),
+    fragment: z
+      .string()
+      .min(1)
+      .max(2_048)
+      .refine(
+        (value) => !value.includes("\0") && !value.includes("\\") && !value.startsWith("#"),
+        "fragment 不能包含 NUL/反斜杠或以 # 开头",
+      ),
+  }),
+]);
+export type ReaderNavigation = z.infer<typeof readerNavigationSchema>;
+
 const baseFields = {
   protocolVersion: z.literal(PROTOCOL_VERSION),
   sessionId: sessionIdSchema,
@@ -24,6 +44,8 @@ const baseFields = {
 
 export const readerModeSchema = z.enum(["paged", "scrolling"]);
 export type ReaderMode = z.infer<typeof readerModeSchema>;
+export type { ReaderSettings };
+export { readerSettingsSchema };
 
 const spineHrefSchema = z
   .string()
@@ -72,17 +94,38 @@ const pageStateSchema = z
     "分页时 pageIndex 必须小于 pageCount",
   );
 
+export const CAPTURE_REQUEST_ID_MAX = Number.MAX_SAFE_INTEGER;
+
+export const captureRequestIdSchema = z.number().int().min(1).max(CAPTURE_REQUEST_ID_MAX);
+
 export const locationChangedSchema = z
   .strictObject({
     reason: z.enum(["init", "turn", "scroll", "layout", "go-to", "capture"]),
     locator: readerLocatorSchema,
     mode: readerModeSchema,
+    captureRequestId: captureRequestIdSchema.optional(),
     ...pageStateFields,
   })
   .refine(
     (value) => (value.pageCount === 0 ? value.pageIndex === 0 : value.pageIndex < value.pageCount),
     "分页时 pageIndex 必须小于 pageCount",
-  );
+  )
+  .superRefine((value, context) => {
+    if (value.reason === "capture" && value.captureRequestId === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["captureRequestId"],
+        message: "capture 响应必须携带 captureRequestId",
+      });
+    }
+    if (value.reason !== "capture" && value.captureRequestId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["captureRequestId"],
+        message: "仅 capture 响应允许 captureRequestId",
+      });
+    }
+  });
 export type ReaderLocationChangedPayload = z.infer<typeof locationChangedSchema>;
 
 export type ReaderPageChangedPayload = z.infer<typeof pageStateSchema>;
@@ -99,10 +142,17 @@ export const readerMessageSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...baseFields,
     type: z.literal("reader:init"),
-    payload: z.strictObject({
-      mode: readerModeSchema,
-      initialLocator: readerLocatorSchema.nullable(),
-    }),
+    payload: z
+      .strictObject({
+        spineIndex: z.number().int().min(0),
+        settings: readerSettingsSchema,
+        initialLocator: readerLocatorSchema.nullable(),
+        initialNavigation: readerNavigationSchema.optional(),
+      })
+      .refine(
+        (value) => !(value.initialLocator !== null && value.initialNavigation !== undefined),
+        "initialLocator 与 initialNavigation 不能同时提供",
+      ),
   }),
   z.strictObject({
     ...baseFields,
@@ -130,12 +180,14 @@ export const readerMessageSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...baseFields,
     type: z.literal("reader:update-settings"),
-    payload: z.strictObject({ mode: readerModeSchema }),
+    payload: z.strictObject({ settings: readerSettingsSchema }),
   }),
   z.strictObject({
     ...baseFields,
     type: z.literal("reader:capture-locator"),
-    payload: z.strictObject({}),
+    payload: z.strictObject({
+      captureRequestId: captureRequestIdSchema,
+    }),
   }),
   z.strictObject({
     ...baseFields,

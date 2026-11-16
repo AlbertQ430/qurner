@@ -13,13 +13,19 @@ class FakeParent {
 
 class FakeEngine implements ReaderEngine {
   start = vi.fn(
-    (_mode: "paged" | "scrolling", _locator: unknown, callbacks: ReaderEngineCallbacks) => {
+    (
+      _settings: unknown,
+      _locator: unknown,
+      _navigation: unknown,
+      _spineIndex: unknown,
+      callbacks: ReaderEngineCallbacks,
+    ) => {
       this.callbacks = callbacks;
       callbacks.ready();
     },
   );
   goTo = vi.fn();
-  updateMode = vi.fn();
+  applySettings = vi.fn();
   captureLocator = vi.fn();
   turnPage = vi.fn();
   callbacks: ReaderEngineCallbacks | null = null;
@@ -72,13 +78,20 @@ function initMessage(
   locatorValue: unknown = null,
   token = TOKEN,
   sessionId = SESSION_ID,
+  initialNavigation?: unknown,
+  spineIndex = 0,
 ): Record<string, unknown> {
   return {
     protocolVersion: 1,
     sessionId,
     sessionToken: token,
     type: "reader:init",
-    payload: { mode, initialLocator: locatorValue },
+    payload: {
+      spineIndex,
+      settings: { mode, fontScale: 1, theme: "day" },
+      initialLocator: locatorValue,
+      ...(initialNavigation === undefined ? {} : { initialNavigation }),
+    },
   };
 }
 
@@ -101,14 +114,80 @@ describe("iframe bridge", () => {
     vi.useRealTimers();
   });
 
+  it("learns parent origin from a valid init when referrer is unavailable", () => {
+    const engine = new FakeEngine();
+    const parent = new FakeParent();
+    const postToParent = vi.fn();
+    const bridge = new IframeBridge(
+      {
+        sessionId: SESSION_ID,
+        sessionToken: TOKEN,
+        parentOrigin: "",
+        engineVersion: "0.2.0",
+      },
+      {
+        parentWindow: parent as unknown as Window,
+        listenTarget: window,
+        postToParent,
+        engine,
+      },
+    );
+    dispatch(parent, initMessage("scrolling", locator()), "http://packaged-parent.test");
+    expect(bridge.getState()).toBe("ready");
+    expect(postToParent).toHaveBeenCalledTimes(1);
+    expect(postToParent.mock.calls[0]?.[1]).toBe("http://packaged-parent.test");
+
+    dispatch(parent, commandMessage("reader:turn-page", { direction: "next" }), "http://evil.test");
+    expect(engine.turnPage).not.toHaveBeenCalled();
+    dispatch(
+      parent,
+      commandMessage("reader:turn-page", { direction: "next" }),
+      "http://packaged-parent.test",
+    );
+    expect(engine.turnPage).toHaveBeenCalledWith("next");
+  });
+
+  it("does not learn the parent origin from non-init or invalid messages", () => {
+    const engine = new FakeEngine();
+    const parent = new FakeParent();
+    const postToParent = vi.fn();
+    const bridge = new IframeBridge(
+      {
+        sessionId: SESSION_ID,
+        sessionToken: TOKEN,
+        parentOrigin: "",
+        engineVersion: "0.2.0",
+      },
+      {
+        parentWindow: parent as unknown as Window,
+        listenTarget: window,
+        postToParent,
+        engine,
+      },
+    );
+    dispatch(parent, commandMessage("reader:turn-page", { direction: "next" }), "http://evil.test");
+    dispatch(parent, initMessage("paged", null, "c".repeat(32)), "http://evil.test");
+    expect(bridge.getState()).toBe("waiting");
+    expect(postToParent).not.toHaveBeenCalled();
+    dispatch(parent, initMessage("scrolling", locator()), "http://legit-parent.test");
+    expect(bridge.getState()).toBe("ready");
+    expect(postToParent.mock.calls[0]?.[1]).toBe("http://legit-parent.test");
+  });
+
   it("starts the engine and sends a single ready", () => {
     const engine = new FakeEngine();
     const { bridge, postToParent, parent } = createBridge(engine);
     dispatch(parent, initMessage("scrolling", locator()));
 
     expect(engine.start).toHaveBeenCalledTimes(1);
-    expect(engine.start.mock.calls[0]?.[0]).toBe("scrolling");
+    expect(engine.start.mock.calls[0]?.[0]).toEqual({
+      mode: "scrolling",
+      fontScale: 1,
+      theme: "day",
+    });
     expect(engine.start.mock.calls[0]?.[1]).toEqual(locator());
+    expect(engine.start.mock.calls[0]?.[2]).toBeNull();
+    expect(engine.start.mock.calls[0]?.[3]).toBe(0);
     expect(bridge.getState()).toBe("ready");
     expect(postToParent).toHaveBeenCalledTimes(1);
     const [message, origin] = postToParent.mock.calls[0] as [Record<string, unknown>, string];
@@ -129,22 +208,37 @@ describe("iframe bridge", () => {
 
     dispatch(parent, commandMessage("reader:turn-page", { direction: "next" }));
     dispatch(parent, commandMessage("reader:go-to", { locator: locator() }));
-    dispatch(parent, commandMessage("reader:update-settings", { mode: "paged" }));
-    dispatch(parent, commandMessage("reader:capture-locator", {}));
+    dispatch(
+      parent,
+      commandMessage("reader:update-settings", {
+        settings: { mode: "paged", fontScale: 1, theme: "day" },
+      }),
+    );
+    dispatch(parent, commandMessage("reader:capture-locator", { captureRequestId: 7 }));
     expect(engine.turnPage).not.toHaveBeenCalled();
     expect(engine.goTo).not.toHaveBeenCalled();
-    expect(engine.updateMode).not.toHaveBeenCalled();
+    expect(engine.applySettings).not.toHaveBeenCalled();
     expect(engine.captureLocator).not.toHaveBeenCalled();
 
     dispatch(parent, initMessage());
     dispatch(parent, commandMessage("reader:turn-page", { direction: "prev" }));
     dispatch(parent, commandMessage("reader:go-to", { locator: locator({ textOffset: 9 }) }));
-    dispatch(parent, commandMessage("reader:update-settings", { mode: "scrolling" }));
-    dispatch(parent, commandMessage("reader:capture-locator", {}));
+    dispatch(
+      parent,
+      commandMessage("reader:update-settings", {
+        settings: { mode: "scrolling", fontScale: 1.2, theme: "night" },
+      }),
+    );
+    dispatch(parent, commandMessage("reader:capture-locator", { captureRequestId: 7 }));
 
+    expect(engine.captureLocator).toHaveBeenCalledWith(7);
     expect(engine.turnPage).toHaveBeenCalledWith("prev");
     expect(engine.goTo).toHaveBeenCalledWith(locator({ textOffset: 9 }));
-    expect(engine.updateMode).toHaveBeenCalledWith("scrolling");
+    expect(engine.applySettings).toHaveBeenCalledWith({
+      mode: "scrolling",
+      fontScale: 1.2,
+      theme: "night",
+    });
     expect(engine.captureLocator).toHaveBeenCalledTimes(1);
 
     bridge.close();

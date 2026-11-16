@@ -28,11 +28,11 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  gap: 1.5rem;
   min-height: 100%;
   max-width: 960px;
   margin: 0 auto;
-  padding: 4rem 2rem;
+  padding: 2rem;
 }
 
 .app-header h1 {
@@ -576,7 +576,8 @@ body {
 }
 
 .library-scroll {
-  max-height: 68vh;
+  /* 窗口较矮时限制在可视区内，保证网格可滚动而非被窗口裁切。 */
+  max-height: min(68vh, calc(100vh - 30rem));
   overflow-y: auto;
   border: 1px solid transparent;
   border-radius: 0.5rem;
@@ -601,7 +602,8 @@ body {
   top: 0;
   left: 0;
   width: 100%;
-  height: 368px;
+  /* 行高由虚拟化按列宽动态设置（封面 2:3 + 标题作者）。 */
+  height: auto;
   overflow: hidden;
 }
 
@@ -622,18 +624,23 @@ body {
 }
 
 .book-grid-row .book-card {
-  height: 352px;
+  height: calc(100% - 1rem);
 }
 
-.book-grid-row .book-card {
-  height: 22rem;
+.book-grid-row .book-cover {
+  flex: 0 0 auto;
+  margin-inline: auto;
+}
+
+.book-grid-row .book-meta {
+  flex: 0 0 auto;
 }
 
 .book-grid-row .book-title,
 .book-grid-row .book-author {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   overflow: hidden;
 }
 
@@ -643,4 +650,382 @@ body {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
   overflow: hidden;
+}
+
+.book-open {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.book-open:focus-visible {
+  outline: 2px solid #2f5d9a;
+  outline-offset: 2px;
+  border-radius: 0.4rem;
+}
+
+.book-row .book-open {
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+}
+
+.book-open .book-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.book-open .book-title {
+  display: block;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.book-open .book-author {
+  display: block;
+  margin: 0;
+  color: #6f675c;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.reader-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f5f3ee;
+}
+
+.reader-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid #d8d0c2;
+}
+
+.reader-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.reader-header button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #8c7f6b;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reader-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 24rem;
+  display: flex;
+}
+
+.reader-stage iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 24rem;
+  border: 0;
+  background: #fff;
+}
+
+.reader-status {
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  color: #4d463c;
+}
+
+.reader-error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  color: #7c2f1e;
+}
+
+.reader-error p {
+  margin: 0;
+}
+
+.reader-error-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.reader-error-actions button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reader-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.reader-mode-group {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.reader-mode-group button[aria-pressed="true"] {
+  background: #e8e2d6;
+}
+
+.reader-toc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.reader-toc-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(20, 16, 10, 0.35);
+  cursor: pointer;
+}
+
+.reader-toc {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+  width: min(24rem, 85vw);
+  margin-left: auto;
+  padding: 1rem 1.25rem;
+  background: #fffdf8;
+  overflow-y: auto;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+.reader-toc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.reader-toc-header h3 {
+  margin: 0;
+}
+
+.reader-toc-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.reader-toc-item {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.4rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reader-toc-item:hover,
+.reader-toc-item:focus-visible {
+  background: #efe9dc;
+}
+
+.reader-immersive .reader-stage {
+  flex: 1 1 auto;
+}
+
+.reader-hot-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  height: 48px;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  cursor: default;
+}
+
+.reader-hot-zone:focus-visible {
+  outline: 2px solid #2f5d9a;
+  background: rgba(255, 255, 255, 0.85);
+  color: #241f19;
+}
+
+.reader-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+}
+
+.reader-settings-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(20, 16, 10, 0.35);
+  cursor: pointer;
+}
+
+.reader-settings {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+  width: min(22rem, 85vw);
+  margin-left: auto;
+  padding: 1rem 1.25rem;
+  background: #fffdf8;
+  overflow-y: auto;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+.reader-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.reader-settings-row,
+.reader-theme-group {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.reader-settings-row button,
+.reader-theme-group button {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid #8c7f6b;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reader-theme-group button[aria-pressed="true"] {
+  background: #e8e2d6;
+}
+
+.reader-settings-message {
+  margin: 0;
+  color: #7c2f1e;
+  font-size: 0.9rem;
+}
+
+.reader-bookmarks-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+}
+
+.reader-bookmarks-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(20, 16, 10, 0.35);
+  cursor: pointer;
+}
+
+.reader-bookmarks {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+  width: min(24rem, 85vw);
+  margin-left: auto;
+  padding: 1rem 1.25rem;
+  background: #fffdf8;
+  overflow-y: auto;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+.reader-bookmarks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.reader-bookmarks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reader-bookmarks-list li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.reader-bookmark-jump {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d8d0c2;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reader-bookmark-chapter {
+  font-weight: 600;
+}
+
+.reader-bookmark-excerpt {
+  color: #6f675c;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.reader-bookmark-jump time {
+  color: #8c8273;
+  font-size: 0.8rem;
 }

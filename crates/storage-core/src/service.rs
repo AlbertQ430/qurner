@@ -9,7 +9,9 @@ use reader_model::{BookSummary, ListBooksQuery};
 use rusqlite::Connection;
 
 use crate::StorageError;
+use crate::bookmarks;
 use crate::books;
+use crate::open;
 use crate::records::{ExistingBookRecord, NewBookRecord, ReactivateOutcome};
 use crate::schema;
 
@@ -36,6 +38,68 @@ enum Request {
     ListBooks {
         query: ListBooksQuery,
         reply: Sender<Result<Vec<BookSummary>, StorageError>>,
+    },
+    OpenBookRecord {
+        id: String,
+        reply: Sender<Result<Option<open::OpenBookRecord>, StorageError>>,
+    },
+    ReadingState {
+        book_id: String,
+        reply: Sender<Result<Option<open::ReadingStateRecord>, StorageError>>,
+    },
+    BookSettings {
+        book_id: String,
+        reply: Sender<Result<Option<open::BookSettingsRecord>, StorageError>>,
+    },
+    AppSetting {
+        key: String,
+        reply: Sender<Result<Option<String>, StorageError>>,
+    },
+    MarkOpened {
+        book_id: String,
+        timestamp: String,
+        reply: Sender<Result<(), StorageError>>,
+    },
+    UpdateAppSettings {
+        key: String,
+        mode: Option<String>,
+        font_scale: Option<f64>,
+        theme: Option<String>,
+        timestamp: String,
+        reply: Sender<Result<(), StorageError>>,
+    },
+    UpdateBookSettings {
+        book_id: String,
+        mode: Option<Option<String>>,
+        font_scale: Option<Option<f64>>,
+        theme: Option<Option<String>>,
+        timestamp: String,
+        reply: Sender<Result<(), StorageError>>,
+    },
+    DeleteBookSettings {
+        book_id: String,
+        reply: Sender<Result<(), StorageError>>,
+    },
+    ListBookmarks {
+        book_id: String,
+        reply: Sender<Result<Vec<bookmarks::BookmarkRecord>, StorageError>>,
+    },
+    InsertBookmark {
+        record: bookmarks::BookmarkRecord,
+        reply: Sender<Result<(), StorageError>>,
+    },
+    DeleteBookmark {
+        book_id: String,
+        bookmark_id: String,
+        reply: Sender<Result<bool, StorageError>>,
+    },
+    SaveReadingState {
+        book_id: String,
+        locator_json: String,
+        locator_version: u32,
+        global_progression: f64,
+        timestamp: String,
+        reply: Sender<Result<(), StorageError>>,
     },
     Shutdown(Sender<Result<(), StorageError>>),
     #[cfg(test)]
@@ -193,6 +257,232 @@ impl StorageService {
             .map_err(|_| StorageError::ThreadUnavailable)?
     }
 
+    /// 读取 active 书籍打开记录。
+    pub fn open_book_record(&self, id: &str) -> Result<Option<open::OpenBookRecord>, StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::OpenBookRecord {
+                id: id.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 读取阅读位置。
+    pub fn reading_state(
+        &self,
+        book_id: &str,
+    ) -> Result<Option<open::ReadingStateRecord>, StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::ReadingState {
+                book_id: book_id.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 读取单书设置覆盖。
+    pub fn book_settings(
+        &self,
+        book_id: &str,
+    ) -> Result<Option<open::BookSettingsRecord>, StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::BookSettings {
+                book_id: book_id.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 读取全局设置 JSON。
+    pub fn app_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::AppSetting {
+                key: key.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 原子写入全局设置显式 patch。
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_app_settings(
+        &self,
+        key: &str,
+        mode: Option<&str>,
+        font_scale: Option<f64>,
+        theme: Option<&str>,
+        timestamp: &str,
+    ) -> Result<(), StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::UpdateAppSettings {
+                key: key.to_string(),
+                mode: mode.map(str::to_string),
+                font_scale,
+                theme: theme.map(str::to_string),
+                timestamp: timestamp.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 原子写入单书字段 patch（None 保留、Some(None) 清除）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_book_settings(
+        &self,
+        book_id: &str,
+        mode: Option<Option<&str>>,
+        font_scale: Option<Option<f64>>,
+        theme: Option<Option<&str>>,
+        timestamp: &str,
+    ) -> Result<(), StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::UpdateBookSettings {
+                book_id: book_id.to_string(),
+                mode: mode.map(|value| value.map(str::to_string)),
+                font_scale,
+                theme: theme.map(|value| value.map(str::to_string)),
+                timestamp: timestamp.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 列出书签。
+    pub fn list_bookmarks(
+        &self,
+        book_id: &str,
+    ) -> Result<Vec<bookmarks::BookmarkRecord>, StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::ListBookmarks {
+                book_id: book_id.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 插入书签。
+    pub fn insert_bookmark(&self, record: bookmarks::BookmarkRecord) -> Result<(), StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::InsertBookmark {
+                record,
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 删除书签。
+    pub fn delete_bookmark(&self, book_id: &str, bookmark_id: &str) -> Result<bool, StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::DeleteBookmark {
+                book_id: book_id.to_string(),
+                bookmark_id: bookmark_id.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 保存阅读位置。
+    pub fn save_reading_state(
+        &self,
+        book_id: &str,
+        locator_json: &str,
+        locator_version: u32,
+        global_progression: f64,
+        timestamp: &str,
+    ) -> Result<(), StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::SaveReadingState {
+                book_id: book_id.to_string(),
+                locator_json: locator_json.to_string(),
+                locator_version,
+                global_progression,
+                timestamp: timestamp.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 删除单书设置行。
+    pub fn delete_book_settings(&self, book_id: &str) -> Result<(), StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::DeleteBookSettings {
+                book_id: book_id.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
+    /// 更新最近打开时间。
+    pub fn mark_opened(&self, book_id: &str, timestamp: &str) -> Result<(), StorageError> {
+        let sender = self.sender()?;
+        let (reply_sender, reply_receiver) = mpsc::channel();
+        sender
+            .send(Request::MarkOpened {
+                book_id: book_id.to_string(),
+                timestamp: timestamp.to_string(),
+                reply: reply_sender,
+            })
+            .map_err(|_| StorageError::ThreadUnavailable)?;
+        reply_receiver
+            .recv()
+            .map_err(|_| StorageError::ThreadUnavailable)?
+    }
+
     /// 等待已排队请求完成、关闭连接并结束写线程。
     pub fn shutdown(self) -> Result<(), StorageError> {
         let sender = self
@@ -272,6 +562,96 @@ fn run_worker(connection: &mut Connection, receiver: mpsc::Receiver<Request>) {
             }
             Request::ListBooks { query, reply } => {
                 let _ = reply.send(books::list_books(connection, &query));
+            }
+            Request::OpenBookRecord { id, reply } => {
+                let _ = reply.send(open::active_book(connection, &id));
+            }
+            Request::ReadingState { book_id, reply } => {
+                let _ = reply.send(open::reading_state(connection, &book_id));
+            }
+            Request::BookSettings { book_id, reply } => {
+                let _ = reply.send(open::book_settings(connection, &book_id));
+            }
+            Request::AppSetting { key, reply } => {
+                let _ = reply.send(open::app_setting(connection, &key));
+            }
+            Request::MarkOpened {
+                book_id,
+                timestamp,
+                reply,
+            } => {
+                let _ = reply.send(open::mark_opened(connection, &book_id, &timestamp));
+            }
+            Request::UpdateAppSettings {
+                key,
+                mode,
+                font_scale,
+                theme,
+                timestamp,
+                reply,
+            } => {
+                let _ = reply.send(open::update_app_settings(
+                    connection,
+                    &key,
+                    mode.as_deref(),
+                    font_scale,
+                    theme.as_deref(),
+                    &timestamp,
+                ));
+            }
+            Request::UpdateBookSettings {
+                book_id,
+                mode,
+                font_scale,
+                theme,
+                timestamp,
+                reply,
+            } => {
+                let _ = reply.send(open::update_book_settings(
+                    connection,
+                    &book_id,
+                    mode.as_ref().map(|value| value.as_deref()),
+                    font_scale,
+                    theme.as_ref().map(|value| value.as_deref()),
+                    &timestamp,
+                ));
+            }
+            Request::DeleteBookSettings { book_id, reply } => {
+                let _ = reply.send(open::delete_book_settings(connection, &book_id));
+            }
+            Request::ListBookmarks { book_id, reply } => {
+                let _ = reply.send(bookmarks::list_bookmarks(connection, &book_id));
+            }
+            Request::InsertBookmark { record, reply } => {
+                let _ = reply.send(bookmarks::insert_bookmark(connection, &record));
+            }
+            Request::DeleteBookmark {
+                book_id,
+                bookmark_id,
+                reply,
+            } => {
+                let _ = reply.send(bookmarks::delete_bookmark(
+                    connection,
+                    &book_id,
+                    &bookmark_id,
+                ));
+            }
+            Request::SaveReadingState {
+                book_id,
+                locator_json,
+                locator_version,
+                global_progression,
+                timestamp,
+                reply,
+            } => {
+                let _ = reply.send(open::save_reading_state(
+                    connection,
+                    &book_id,
+                    &locator_json,
+                    locator_version,
+                    global_progression,
+                    &timestamp,
+                ));
             }
             Request::Shutdown(reply) => {
                 let _ = reply.send(Ok(()));

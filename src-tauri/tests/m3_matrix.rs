@@ -45,7 +45,9 @@ fn header<'a>(response: &'a ProtocolResponse, name: &str) -> Option<&'a str> {
 fn session(path: &std::path::Path) -> (SessionRegistry, String, String, epub_core::ParsedBook) {
     let book = parse_epub(path).expect("应能解析夹具");
     let registry = SessionRegistry::new();
-    let handle_value = registry.create(path, book.clone()).expect("应能创建会话");
+    let handle_value = registry
+        .create("book-1", path, book.clone())
+        .expect("应能创建会话");
     (registry, handle_value.token, handle_value.session_id, book)
 }
 

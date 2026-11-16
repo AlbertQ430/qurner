@@ -95,7 +95,15 @@ function baseMessage(): Record<string, unknown> {
 }
 
 function initMessage(mode: "paged" | "scrolling"): Record<string, unknown> {
-  return { ...baseMessage(), type: "reader:init", payload: { mode, initialLocator: null } };
+  return {
+    ...baseMessage(),
+    type: "reader:init",
+    payload: {
+      spineIndex: 0,
+      settings: { mode, fontScale: 1, theme: "day" },
+      initialLocator: null,
+    },
+  };
 }
 
 function command(type: string, payload: Record<string, unknown>): Record<string, unknown> {

@@ -94,11 +94,12 @@ function baseMessage(): Record<string, unknown> {
 function initMessage(
   mode: "paged" | "scrolling",
   initialLocator: unknown = null,
+  spineIndex = 0,
 ): Record<string, unknown> {
   return {
     ...baseMessage(),
     type: "reader:init",
-    payload: { mode, initialLocator },
+    payload: { spineIndex, settings: { mode, fontScale: 1, theme: "day" }, initialLocator },
   };
 }
 
@@ -277,11 +278,13 @@ test("paged mode paginates, advances and clamps at boundaries", async ({ page })
   expect(initPayload.pageCount).toBeGreaterThan(1);
   expect(initPayload.pageIndex).toBe(0);
 
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 1 }));
   await waitForReason(page, "capture", 1);
   const pageZero = (await lastReason(page, "capture")) as {
     locator: { textOffset: number };
+    captureRequestId: number;
   };
+  expect(pageZero.captureRequestId).toBe(1);
 
   await send(page, command("reader:turn-page", { direction: "next" }));
   await waitForCount(page, "reader:page-changed", 1);
@@ -292,11 +295,13 @@ test("paged mode paginates, advances and clamps at boundaries", async ({ page })
   expect(first.pageIndex).toBe(1);
   expect(first.pageCount).toBe(initPayload.pageCount);
 
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 2 }));
   await waitForReason(page, "capture", 2);
   const pageOne = (await lastReason(page, "capture")) as {
     locator: { textOffset: number };
+    captureRequestId: number;
   };
+  expect(pageOne.captureRequestId).toBe(2);
   expect(pageOne.locator.textOffset).toBeGreaterThan(pageZero.locator.textOffset);
 
   await send(page, command("reader:turn-page", { direction: "prev" }));
@@ -391,11 +396,13 @@ test("scrolling mode turns about one viewport and dedupes boundaries", async ({ 
     });
   await page.waitForTimeout(300);
   const before = await readScroll();
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 1 }));
   await waitForReason(page, "capture", 1);
   const beforeLocator = (await lastReason(page, "capture")) as {
     locator: { textOffset: number };
+    captureRequestId: number;
   };
+  expect(beforeLocator.captureRequestId).toBe(1);
   await send(page, command("reader:turn-page", { direction: "next" }));
   await waitForReason(page, "turn", 1);
   const after = await readScroll();
@@ -451,11 +458,13 @@ test("resize keeps the same locator quote", async ({ page }) => {
   await waitForReason(page, "init", 1);
   await send(page, command("reader:turn-page", { direction: "next" }));
   await waitForCount(page, "reader:page-changed", 1);
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 1 }));
   await waitForReason(page, "capture", 1);
   const before = (await lastReason(page, "capture")) as {
     locator: { textOffset: number; quote: { exact: string } };
+    captureRequestId: number;
   };
+  expect(before.captureRequestId).toBe(1);
 
   await page.evaluate(() => {
     const doc = (
@@ -481,11 +490,13 @@ test("resize keeps the same locator quote", async ({ page }) => {
   });
   await page.waitForTimeout(400);
 
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 2 }));
   await waitForReason(page, "capture", 2);
   const after = (await lastReason(page, "capture")) as {
     locator: { textOffset: number; quote: { exact: string } };
+    captureRequestId: number;
   };
+  expect(after.captureRequestId).toBe(2);
   expect(after.locator.quote.exact).toBe(before.locator.quote.exact);
   expect(Math.abs(after.locator.textOffset - before.locator.textOffset)).toBeLessThanOrEqual(2);
 });
@@ -545,12 +556,14 @@ test("initial locator restores the middle of the chapter", async ({ page }) => {
   await waitForReason(page, "init", 1);
   await send(page, command("reader:turn-page", { direction: "next" }));
   await waitForCount(page, "reader:page-changed", 1);
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 1 }));
   await waitForReason(page, "capture", 1);
   const captured = (await lastReason(page, "capture")) as {
     locator: { textOffset: number; quote: { exact: string } };
     pageIndex: number;
+    captureRequestId: number;
   };
+  expect(captured.captureRequestId).toBe(1);
   expect(captured.pageIndex).toBe(1);
 
   await page.goto(`http://${PARENT_HOST}/parent.html`);
@@ -563,12 +576,14 @@ test("initial locator restores the middle of the chapter", async ({ page }) => {
   await send(page, initMessage("paged", captured.locator));
   await waitForCount(page, "reader:ready", 1);
   await waitForReason(page, "init", 1);
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 1 }));
   await waitForReason(page, "capture", 1);
   const restored = (await lastReason(page, "capture")) as {
     locator: { textOffset: number; quote: { exact: string } };
     pageIndex: number;
+    captureRequestId: number;
   };
+  expect(restored.captureRequestId).toBe(1);
   expect(restored.locator.quote.exact).toBe(captured.locator.quote.exact);
   expect(Math.abs(restored.locator.textOffset - captured.locator.textOffset)).toBeLessThanOrEqual(
     2,
@@ -584,13 +599,20 @@ test("mode switch preserves the locator and go-to jumps back", async ({ page }) 
   await waitForReason(page, "init", 1);
   await send(page, command("reader:turn-page", { direction: "next" }));
   await waitForCount(page, "reader:page-changed", 1);
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 1 }));
   await waitForReason(page, "capture", 1);
   const captured = (await lastReason(page, "capture")) as {
     locator: { textOffset: number; quote: { exact: string } };
+    captureRequestId: number;
   };
+  expect(captured.captureRequestId).toBe(1);
 
-  await send(page, command("reader:update-settings", { mode: "scrolling" }));
+  await send(
+    page,
+    command("reader:update-settings", {
+      settings: { mode: "scrolling", fontScale: 1, theme: "day" },
+    }),
+  );
   await page.waitForFunction(
     () => {
       const entries = (
@@ -614,14 +636,19 @@ test("mode switch preserves the locator and go-to jumps back", async ({ page }) 
     { timeout: 10_000 },
   );
 
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 2 }));
   await waitForReason(page, "capture", 2);
   const scrollingCapture = (await lastReason(page, "capture")) as {
     locator: { quote: { exact: string } };
+    captureRequestId: number;
   };
+  expect(scrollingCapture.captureRequestId).toBe(2);
   expect(scrollingCapture.locator.quote.exact).toBe(captured.locator.quote.exact);
 
-  await send(page, command("reader:update-settings", { mode: "paged" }));
+  await send(
+    page,
+    command("reader:update-settings", { settings: { mode: "paged", fontScale: 1, theme: "day" } }),
+  );
   await page.waitForFunction(
     () => {
       const entries = (
@@ -646,11 +673,13 @@ test("mode switch preserves the locator and go-to jumps back", async ({ page }) 
     undefined,
     { timeout: 10_000 },
   );
-  await send(page, command("reader:capture-locator", {}));
+  await send(page, command("reader:capture-locator", { captureRequestId: 3 }));
   await waitForReason(page, "capture", 3);
   const pagedCapture = (await lastReason(page, "capture")) as {
     locator: { quote: { exact: string } };
+    captureRequestId: number;
   };
+  expect(pagedCapture.captureRequestId).toBe(3);
   expect(pagedCapture.locator.quote.exact).toBe(captured.locator.quote.exact);
 
   const target = locator({
@@ -665,7 +694,7 @@ test("mode switch preserves the locator and go-to jumps back", async ({ page }) 
 test("missing and cross-spine locators report distinct errors", async ({ page }) => {
   const engine = await engineSource();
   await setupPage(page, longBody(), engine, 1, "chapter2.xhtml");
-  await send(page, initMessage("paged"));
+  await send(page, initMessage("paged", null, 1));
   await waitForCount(page, "reader:ready", 1);
   await waitForReason(page, "init", 1);
   const initPayload = (await lastReason(page, "init")) as {

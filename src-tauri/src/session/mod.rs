@@ -28,6 +28,7 @@ pub struct SessionHandle {
 pub struct Session {
     pub session_id: String,
     pub token: String,
+    pub book_id: String,
     pub source_path: PathBuf,
     pub book: ParsedBook,
 }
@@ -56,6 +57,7 @@ impl SessionRegistry {
     /// 创建会话；源路径会规范化后保存。
     pub fn create(
         &self,
+        book_id: &str,
         source_path: &Path,
         book: ParsedBook,
     ) -> Result<SessionHandle, SessionError> {
@@ -67,12 +69,19 @@ impl SessionRegistry {
         let session = Arc::new(Session {
             session_id: session_id.clone(),
             token: token.clone(),
+            book_id: book_id.to_string(),
             source_path: source,
             book,
         });
         lock(&self.sessions).insert(token.clone(), Arc::clone(&session));
         lock(&self.by_id).insert(session_id.clone(), token.clone());
         Ok(SessionHandle { session_id, token })
+    }
+
+    /// 按 sessionId 查找有效会话。
+    pub fn find(&self, session_id: &str) -> Option<Arc<Session>> {
+        let token = lock(&self.by_id).get(session_id).cloned()?;
+        lock(&self.sessions).get(&token).cloned()
     }
 
     /// 按协议令牌查找会话。

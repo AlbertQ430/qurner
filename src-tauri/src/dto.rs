@@ -3,10 +3,29 @@
 use std::path::Path;
 
 use library_core::{ImportItemResult, ImportStatus};
-use reader_model::BookSummary;
+use reader_model::{BookSummary, ReaderLocator};
 use serde::Serialize;
 
 use crate::error::AppError;
+
+/// 书签 DTO。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookmarkDto {
+    pub id: String,
+    pub book_id: String,
+    pub locator: ReaderLocator,
+    pub excerpt: Option<String>,
+    pub created_at: String,
+}
+
+/// 阅读位置保存结果。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveReadingStateResult {
+    pub global_progression: f64,
+    pub saved_at: String,
+}
 
 /// 书库摘要；同名字段与 SDS 9.1/前端类型一致。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

@@ -8,13 +8,18 @@
 pub mod fingerprint;
 pub mod library;
 pub mod locator;
+pub mod session;
 
 pub use fingerprint::{BookFingerprint, FingerprintError, SHA256_BYTES, SHA256_HEX_LEN};
-pub use library::{BookSort, BookSummary, ListBooksQuery, SortDirection};
+pub use library::{
+    BookSort, BookSummary, Bookmark, ListBooksQuery, MAX_BOOKMARK_EXCERPT_UTF16, SortDirection,
+    excerpt_from_quote,
+};
 pub use locator::{
     MAX_QUOTE_CONTEXT_UTF16, MAX_QUOTE_EXACT_UTF16, MAX_TEXT_OFFSET, READER_LOCATOR_VERSION,
     ReaderLocator, ReaderLocatorError, ReaderMode, ReaderQuoteContext,
 };
+pub use session::{ReaderSession, ReaderSettings, ReaderSpineItem, ReaderTheme, ReaderTocNode};
 
 /// crate 名称，用于冒烟测试确认 workspace 能编译并测试本包。
 pub const CRATE_NAME: &str = "reader-model";

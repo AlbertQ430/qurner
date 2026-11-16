@@ -68,7 +68,8 @@ describe("parent bridge", () => {
     const bridge = new ParentBridge(fakeIframe(target), {
       sessionId: SESSION_ID,
       sessionToken: TOKEN,
-      initialMode: "scrolling",
+      spineIndex: 0,
+      settings: { mode: "scrolling", fontScale: 1, theme: "day" },
       initialLocator: locator(),
     });
 
@@ -78,7 +79,8 @@ describe("parent bridge", () => {
     expect(origin).toBe("*");
     expect(message.type).toBe("reader:init");
     expect(message.payload).toEqual({
-      mode: "scrolling",
+      spineIndex: 0,
+      settings: { mode: "scrolling", fontScale: 1, theme: "day" },
       initialLocator: locator(),
     });
 
@@ -90,11 +92,13 @@ describe("parent bridge", () => {
     const bridge = new ParentBridge(fakeIframe(target), {
       sessionId: SESSION_ID,
       sessionToken: TOKEN,
+      spineIndex: 0,
+      settings: { mode: "paged", fontScale: 1, theme: "day" },
     });
 
     expect(bridge.goTo(locator())).toBe(false);
-    expect(bridge.updateMode("paged")).toBe(false);
-    expect(bridge.captureLocator()).toBe(false);
+    expect(bridge.updateSettings({ mode: "paged", fontScale: 1, theme: "day" })).toBe(false);
+    expect(bridge.captureLocator(1)).toBe(false);
     expect(bridge.turnPage("next")).toBe(false);
     expect(target.postMessage).not.toHaveBeenCalled();
 
@@ -102,8 +106,8 @@ describe("parent bridge", () => {
     expect(bridge.getState()).toBe("ready");
 
     expect(bridge.goTo(locator({ textOffset: 9 }))).toBe(true);
-    expect(bridge.updateMode("scrolling")).toBe(true);
-    expect(bridge.captureLocator()).toBe(true);
+    expect(bridge.updateSettings({ mode: "scrolling", fontScale: 1, theme: "day" })).toBe(true);
+    expect(bridge.captureLocator(1)).toBe(true);
     expect(bridge.turnPage("prev")).toBe(true);
     const types = target.postMessage.mock.calls.map((call) => (call[0] as { type: string }).type);
     expect(types).toEqual([
@@ -112,6 +116,10 @@ describe("parent bridge", () => {
       "reader:capture-locator",
       "reader:turn-page",
     ]);
+    const captureMessage = target.postMessage.mock.calls.find(
+      (call) => (call[0] as { type: string }).type === "reader:capture-locator",
+    )?.[0] as { payload?: { captureRequestId?: number } } | undefined;
+    expect(captureMessage?.payload).toEqual({ captureRequestId: 1 });
 
     bridge.close();
     target.postMessage.mockClear();
@@ -128,6 +136,8 @@ describe("parent bridge", () => {
     const bridge = new ParentBridge(fakeIframe(target), {
       sessionId: SESSION_ID,
       sessionToken: TOKEN,
+      spineIndex: 0,
+      settings: { mode: "paged", fontScale: 1, theme: "day" },
       onLocationChanged,
       onPageChanged,
       onSpineRequest,
@@ -183,6 +193,8 @@ describe("parent bridge", () => {
     const bridge = new ParentBridge(fakeIframe(target), {
       sessionId: SESSION_ID,
       sessionToken: TOKEN,
+      spineIndex: 0,
+      settings: { mode: "paged", fontScale: 1, theme: "day" },
       onReady,
     });
 
@@ -207,6 +219,8 @@ describe("parent bridge", () => {
     const bridge = new ParentBridge(fakeIframe(target), {
       sessionId: SESSION_ID,
       sessionToken: TOKEN,
+      spineIndex: 0,
+      settings: { mode: "paged", fontScale: 1, theme: "day" },
       onError,
       timeoutMs: 1_000,
     });

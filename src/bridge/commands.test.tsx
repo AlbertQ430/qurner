@@ -21,6 +21,26 @@ import {
 } from "./ipc-schemas";
 
 const JOB_ID = "123e4567-e89b-42d3-a456-426614174000";
+const SESSION = {
+  sessionId: JOB_ID,
+  bookId: "book-1",
+  title: "示例书",
+  frameUrl: `epub://${"a".repeat(32)}/OEBPS/chapter1.xhtml`,
+  spine: [{ index: 0, href: "OEBPS/chapter1.xhtml" }],
+  chapterWeights: [1],
+  toc: [
+    {
+      id: "toc-1",
+      label: "第一章",
+      spineIndex: 0,
+      fragment: "s1",
+      children: [],
+    },
+  ],
+  initialLocator: null,
+  initialProgression: 0,
+  settings: { mode: "paged", fontScale: 1, theme: "day" },
+};
 
 class FakeCommandTransport {
   calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
@@ -195,6 +215,426 @@ describe("command bridge", () => {
     await expect(client.softRemoveBook(" book-1 ")).resolves.toBeUndefined();
     expect(transport.calls[0]?.command).toBe(COMMAND_NAMES.softRemoveBook);
     expect(transport.calls[0]?.args).toEqual({ bookId: " book-1 " });
+  });
+
+  it("openBook invokes with bookId and parses the session", async () => {
+    const { transport, client } = bridge();
+    transport.responses.push(SESSION);
+    await expect(client.openBook(" book-1 ")).resolves.toEqual(SESSION);
+    expect(transport.calls[0]).toEqual({
+      command: COMMAND_NAMES.openBook,
+      args: { bookId: " book-1 " },
+    });
+  });
+
+  it("openBook accepts percent-encoded chapter paths", async () => {
+    const { transport, client } = bridge();
+    const encoded = {
+      ...SESSION,
+      frameUrl: `epub://${"a".repeat(32)}/OEBPS/%E7%AC%AC%E4%B8%80%E7%AB%A0.xhtml`,
+      spine: [{ index: 0, href: "OEBPS/第一章.xhtml" }],
+      chapterWeights: [1],
+    };
+    transport.responses.push(encoded);
+    await expect(client.openBook("book-1")).resolves.toEqual(encoded);
+  });
+
+  it("openBook rejects invalid input without invoking", async () => {
+    for (const bookId of ["", "   ", 42]) {
+      const { transport, client } = bridge();
+      await expect(client.openBook(bookId as unknown as string)).rejects.toEqual({
+        code: "E_INVALID_INPUT",
+        message: "输入无效",
+      });
+      expect(transport.calls).toHaveLength(0);
+    }
+  });
+
+  it("openBook maps malformed sessions to E_INTERNAL", async () => {
+    for (const response of [
+      { ...SESSION, frameUrl: "https://evil.test/chapter.xhtml" },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/OEBPS/ch.xhtml?x=1` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/OEBPS/ch.xhtml#frag` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/OEBPS/../ch.xhtml` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/OEBPS/%2e%2e/ch.xhtml` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/%2e%2e%2fchapter.xhtml` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/OEBPS/%5cchapter.xhtml` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/OEBPS/%00chapter.xhtml` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(32)}/%2fchapter.xhtml` },
+      { ...SESSION, frameUrl: `epub://${"a".repeat(31)}/OEBPS/ch.xhtml` },
+      { ...SESSION, sessionId: "not-a-uuid" },
+      {
+        ...SESSION,
+        toc: [
+          {
+            id: "t",
+            label: "章",
+            spineIndex: -1,
+            children: [],
+          },
+        ],
+        initialLocator: {
+          version: 1,
+          spineIndex: 0,
+          spineHref: "../chapter.xhtml",
+          textOffset: 0,
+          intraSpineProgression: 0,
+          quote: { exact: "", prefix: "", suffix: "" },
+        },
+      },
+      {
+        ...SESSION,
+        initialLocator: {
+          version: 1,
+          spineIndex: 0,
+          spineHref: "/chapter.xhtml",
+          textOffset: 0,
+          intraSpineProgression: 0,
+          quote: { exact: "", prefix: "", suffix: "" },
+        },
+      },
+      {
+        ...SESSION,
+        initialLocator: {
+          version: 1,
+          spineIndex: 0,
+          spineHref: "OEBPS\\chapter.xhtml",
+          textOffset: 0,
+          intraSpineProgression: 0,
+          quote: { exact: "", prefix: "", suffix: "" },
+        },
+      },
+      {
+        ...SESSION,
+        initialLocator: {
+          version: 1,
+          spineIndex: 0,
+          spineHref: "OEBPS//chapter.xhtml",
+          textOffset: 0,
+          intraSpineProgression: 0,
+          quote: { exact: "", prefix: "", suffix: "" },
+        },
+      },
+      { ...SESSION, toc: [{ id: "t", label: "章", spineIndex: -1, children: [] }] },
+      { ...SESSION, settings: { mode: "paged", fontScale: 4, theme: "day" } },
+      { ...SESSION, settings: { mode: "paged", fontScale: 1, theme: "sepia" } },
+      { ...SESSION, initialLocator: { version: 2 } },
+      { ...SESSION, initialProgression: 2 },
+      { ...SESSION, token: "secret" },
+    ]) {
+      const { transport, client } = bridge();
+      transport.responses.push(response);
+      await expect(client.openBook("book-1")).rejects.toEqual(INTERNAL_APP_ERROR);
+    }
+  });
+
+  it("closeBook invokes with sessionId and requires null", async () => {
+    const { transport, client } = bridge();
+    transport.responses.push(null);
+    await expect(client.closeBook(SESSION.sessionId)).resolves.toBeUndefined();
+    expect(transport.calls[0]).toEqual({
+      command: COMMAND_NAMES.closeBook,
+      args: { sessionId: SESSION.sessionId },
+    });
+
+    for (const response of [{}, "ok", undefined]) {
+      const invalid = bridge();
+      invalid.transport.responses.push(response);
+      await expect(invalid.client.closeBook(SESSION.sessionId)).rejects.toEqual(INTERNAL_APP_ERROR);
+    }
+  });
+
+  it("closeBook rejects invalid session ids without invoking", async () => {
+    for (const sessionId of ["", "   ", "not-a-uuid", 42]) {
+      const { transport, client } = bridge();
+      await expect(client.closeBook(sessionId as unknown as string)).rejects.toEqual({
+        code: "E_INVALID_INPUT",
+        message: "输入无效",
+      });
+      expect(transport.calls).toHaveLength(0);
+    }
+  });
+
+  it("preserves openBook/closeBook AppErrors", async () => {
+    const open = bridge();
+    open.transport.failure = { code: "E_BOOK_NOT_FOUND", message: "未找到" };
+    await expect(open.client.openBook("missing")).rejects.toEqual({
+      code: "E_BOOK_NOT_FOUND",
+      message: "未找到",
+    });
+    const close = bridge();
+    close.transport.failure = { code: "E_SESSION_INVALID", message: "失效" };
+    await expect(close.client.closeBook(SESSION.sessionId)).rejects.toEqual({
+      code: "E_SESSION_INVALID",
+      message: "失效",
+    });
+  });
+
+  it("saveReadingState sends the locator without bookId and parses the result", async () => {
+    const { transport, client } = bridge();
+    const locator = {
+      version: 1 as const,
+      spineIndex: 1,
+      spineHref: "OEBPS/chapter2.xhtml",
+      textOffset: 12,
+      intraSpineProgression: 0.4,
+      quote: { exact: "正文", prefix: "", suffix: "" },
+    };
+    transport.responses.push({
+      globalProgression: 0.42,
+      savedAt: "2026-11-17T00:00:00Z",
+    });
+    await expect(client.saveReadingState(SESSION.sessionId, locator)).resolves.toEqual({
+      globalProgression: 0.42,
+      savedAt: "2026-11-17T00:00:00Z",
+    });
+    expect(transport.calls[0]).toEqual({
+      command: COMMAND_NAMES.saveReadingState,
+      args: { sessionId: SESSION.sessionId, locator },
+    });
+  });
+
+  it("saveReadingState rejects invalid inputs and results", async () => {
+    const invalid = bridge();
+    await expect(
+      invalid.client.saveReadingState("no", {
+        version: 1,
+        spineIndex: 0,
+        spineHref: "OEBPS/chapter1.xhtml",
+        textOffset: 0,
+        intraSpineProgression: 0,
+        quote: { exact: "", prefix: "", suffix: "" },
+      }),
+    ).rejects.toEqual({ code: "E_INVALID_INPUT", message: "输入无效" });
+    await expect(
+      invalid.client.saveReadingState(SESSION.sessionId, {
+        version: 1,
+        spineIndex: 0,
+        spineHref: "OEBPS/chapter1.xhtml",
+        textOffset: 0,
+        intraSpineProgression: 2,
+        quote: { exact: "", prefix: "", suffix: "" },
+      }),
+    ).rejects.toEqual({ code: "E_INVALID_INPUT", message: "输入无效" });
+    expect(invalid.transport.calls).toHaveLength(0);
+
+    for (const response of [
+      { globalProgression: 1.5, savedAt: "x" },
+      { globalProgression: 0.2 },
+      { globalProgression: "0.2", savedAt: "x" },
+    ]) {
+      const { transport, client } = bridge();
+      transport.responses.push(response);
+      await expect(
+        client.saveReadingState(SESSION.sessionId, {
+          version: 1,
+          spineIndex: 0,
+          spineHref: "OEBPS/chapter1.xhtml",
+          textOffset: 0,
+          intraSpineProgression: 0,
+          quote: { exact: "", prefix: "", suffix: "" },
+        }),
+      ).rejects.toEqual(INTERNAL_APP_ERROR);
+    }
+
+    const backend = bridge();
+    backend.transport.failure = { code: "E_SESSION_INVALID", message: "raw" };
+    await expect(
+      backend.client.saveReadingState(SESSION.sessionId, {
+        version: 1,
+        spineIndex: 0,
+        spineHref: "OEBPS/chapter1.xhtml",
+        textOffset: 0,
+        intraSpineProgression: 0,
+        quote: { exact: "", prefix: "", suffix: "" },
+      }),
+    ).rejects.toEqual({ code: "E_SESSION_INVALID", message: "raw" });
+  });
+
+  it("bookmark commands send strict inputs and parse outputs", async () => {
+    const { transport, client } = bridge();
+    const BOOKMARK = {
+      id: "223e4567-e89b-42d3-a456-426614174000",
+      bookId: "book-1",
+      locator: {
+        version: 1 as const,
+        spineIndex: 0,
+        spineHref: "OEBPS/chapter1.xhtml",
+        textOffset: 3,
+        intraSpineProgression: 0.1,
+        quote: { exact: "摘录", prefix: "", suffix: "" },
+      },
+      excerpt: "摘录",
+      createdAt: "2026-11-18T00:00:00Z",
+    };
+    transport.responses.push([BOOKMARK], BOOKMARK, null);
+    await expect(client.listBookmarks("book-1")).resolves.toEqual([BOOKMARK]);
+    expect(transport.calls[0]).toEqual({
+      command: COMMAND_NAMES.listBookmarks,
+      args: { bookId: "book-1" },
+    });
+    await expect(
+      client.createBookmark(SESSION.sessionId, BOOKMARK.locator, "摘录"),
+    ).resolves.toEqual(BOOKMARK);
+    expect(transport.calls[1]).toEqual({
+      command: COMMAND_NAMES.createBookmark,
+      args: {
+        sessionId: SESSION.sessionId,
+        locator: BOOKMARK.locator,
+        excerpt: "摘录",
+      },
+    });
+    await expect(client.deleteBookmark("book-1", BOOKMARK.id)).resolves.toBeUndefined();
+    expect(transport.calls[2]).toEqual({
+      command: COMMAND_NAMES.deleteBookmark,
+      args: { bookId: "book-1", bookmarkId: BOOKMARK.id },
+    });
+  });
+
+  it("bookmark commands reject invalid inputs and outputs", async () => {
+    const { transport, client } = bridge();
+    const locator = {
+      version: 1 as const,
+      spineIndex: 0,
+      spineHref: "OEBPS/chapter1.xhtml",
+      textOffset: 0,
+      intraSpineProgression: 0,
+      quote: { exact: "", prefix: "", suffix: "" },
+    };
+    const invalid = [
+      () => client.listBookmarks("   "),
+      () => client.createBookmark("no", locator),
+      () => client.createBookmark(SESSION.sessionId, locator, "x".repeat(129)),
+      () =>
+        client.createBookmark(SESSION.sessionId, {
+          ...locator,
+          intraSpineProgression: 2,
+        }),
+      () => client.deleteBookmark("book-1", "no"),
+      () => client.deleteBookmark("  ", "223e4567-e89b-42d3-a456-426614174000"),
+    ];
+    for (const call of invalid) {
+      await expect(call()).rejects.toEqual({
+        code: "E_INVALID_INPUT",
+        message: "输入无效",
+      });
+    }
+    expect(transport.calls).toHaveLength(0);
+
+    for (const response of [
+      [{ id: "bad" }],
+      { id: "bad" },
+      { ...{ id: "223e4567-e89b-42d3-a456-426614174000" }, bookId: "b" },
+    ]) {
+      const invalidOutput = bridge();
+      invalidOutput.transport.responses.push(response);
+      const call =
+        Array.isArray(response) && response.length === 1 && response[0]?.id === "bad"
+          ? invalidOutput.client.listBookmarks("book-1")
+          : invalidOutput.client.createBookmark(SESSION.sessionId, locator);
+      await expect(call).rejects.toEqual(INTERNAL_APP_ERROR);
+    }
+
+    const backend = bridge();
+    backend.transport.failure = { code: "E_BOOK_NOT_FOUND", message: "raw" };
+    await expect(backend.client.listBookmarks("missing")).rejects.toEqual({
+      code: "E_BOOK_NOT_FOUND",
+      message: "raw",
+    });
+  });
+
+  it("settings commands invoke with strict inputs and parse effective settings", async () => {
+    const { transport, client } = bridge();
+    transport.responses.push(
+      { mode: "scrolling", fontScale: 1.5, theme: "night" },
+      { mode: "paged", fontScale: 1.2, theme: "day" },
+      { mode: "scrolling", fontScale: 1.2, theme: "day" },
+      { mode: "paged", fontScale: 1, theme: "day" },
+    );
+
+    await expect(client.getEffectiveSettings("book-1")).resolves.toEqual({
+      mode: "scrolling",
+      fontScale: 1.5,
+      theme: "night",
+    });
+    expect(transport.calls[0]).toEqual({
+      command: COMMAND_NAMES.getEffectiveSettings,
+      args: { bookId: "book-1" },
+    });
+
+    await expect(client.updateAppSettings({ fontScale: 1.2, theme: "day" })).resolves.toEqual({
+      mode: "paged",
+      fontScale: 1.2,
+      theme: "day",
+    });
+    expect(transport.calls[1]).toEqual({
+      command: COMMAND_NAMES.updateAppSettings,
+      args: { patch: { fontScale: 1.2, theme: "day" } },
+    });
+
+    await expect(
+      client.updateBookSettings("book-1", { mode: "scrolling", fontScale: null }),
+    ).resolves.toEqual({ mode: "scrolling", fontScale: 1.2, theme: "day" });
+    expect(transport.calls[2]).toEqual({
+      command: COMMAND_NAMES.updateBookSettings,
+      args: { input: { bookId: "book-1", patch: { mode: "scrolling", fontScale: null } } },
+    });
+
+    await expect(client.resetBookSettings("book-1")).resolves.toEqual({
+      mode: "paged",
+      fontScale: 1,
+      theme: "day",
+    });
+    expect(transport.calls[3]).toEqual({
+      command: COMMAND_NAMES.resetBookSettings,
+      args: { bookId: "book-1" },
+    });
+  });
+
+  it("settings commands reject invalid inputs without invoking", async () => {
+    const invalidCalls: Array<() => Promise<unknown>> = [];
+    const { transport, client } = bridge();
+    invalidCalls.push(
+      () => client.getEffectiveSettings("   "),
+      () => client.updateAppSettings({}),
+      () => client.updateAppSettings({ fontScale: 4 }),
+      () => client.updateAppSettings({ mode: "unknown" as never }),
+      () => client.updateBookSettings("book-1", {}),
+      () => client.updateBookSettings("book-1", { fontScale: -1 }),
+      () => client.updateBookSettings("  ", { mode: "paged" }),
+      () => client.resetBookSettings("  "),
+    );
+    for (const call of invalidCalls) {
+      await expect(call()).rejects.toEqual({
+        code: "E_INVALID_INPUT",
+        message: "输入无效",
+      });
+    }
+    expect(transport.calls).toHaveLength(0);
+  });
+
+  it("settings commands map malformed outputs and backend errors", async () => {
+    for (const response of [
+      { mode: "sepia", fontScale: 1, theme: "day" },
+      { mode: "paged", fontScale: 4, theme: "day" },
+      { mode: "paged", fontScale: 1, theme: "night", extra: true },
+    ]) {
+      const { transport, client } = bridge();
+      transport.responses.push(response);
+      await expect(client.getEffectiveSettings("book-1")).rejects.toEqual(INTERNAL_APP_ERROR);
+    }
+    const { transport, client } = bridge();
+    transport.failure = { code: "E_STORAGE", message: "raw" };
+    await expect(client.updateBookSettings("book-1", { mode: "night" as never })).rejects.toEqual({
+      code: "E_INVALID_INPUT",
+      message: "输入无效",
+    });
+    transport.failure = null;
+    transport.failure = { code: "E_BOOK_NOT_FOUND", message: "未找到" };
+    await expect(client.getEffectiveSettings("missing")).rejects.toEqual({
+      code: "E_BOOK_NOT_FOUND",
+      message: "未找到",
+    });
   });
 
   it("selectImportFiles invokes without args and parses arrays", async () => {

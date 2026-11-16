@@ -13,8 +13,25 @@ import { RemoveBookDialog } from "./RemoveBookDialog";
 
 const DEBOUNCE_MS = 150;
 const LIST_ROW_HEIGHT = 118;
-const GRID_ROW_HEIGHT = 368;
+const GRID_GAP = 16;
 const GRID_CARD_MIN_WIDTH = 180;
+/** 卡面内边距 + 边框（box-sizing: border-box）。 */
+const GRID_CARD_CHROME = 26;
+/** 标题两行 + 作者一行 + 移除按钮 + 间距的安全高度。 */
+const GRID_CARD_META_HEIGHT = 130;
+/** 网格行底部间距。 */
+const GRID_ROW_EXTRA = 16;
+
+/** 由卡宽推导行高：封面 2:3 完整 + 卡面内边距/边框 + 标题作者区域。 */
+export function gridRowHeight(cardWidth: number): number {
+  const safeWidth = Math.max(GRID_CARD_MIN_WIDTH, cardWidth);
+  return Math.ceil(
+    GRID_CARD_CHROME +
+      (safeWidth - GRID_CARD_CHROME) * 1.5 +
+      GRID_CARD_META_HEIGHT +
+      GRID_ROW_EXTRA,
+  );
+}
 
 const SORT_OPTIONS: Array<{ value: BookSort; label: string }> = [
   { value: "importedAt", label: "最近导入" },
@@ -33,9 +50,10 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 
 interface LibraryPageProps {
   client: LibraryCommandClient;
+  onOpenBook?: (bookId: string) => void;
 }
 
-export function LibraryPage({ client }: LibraryPageProps) {
+export function LibraryPage({ client, onOpenBook }: LibraryPageProps) {
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState("");
   const debouncedSearch = useDebouncedValue(searchText, DEBOUNCE_MS);
@@ -64,12 +82,19 @@ export function LibraryPage({ client }: LibraryPageProps) {
     placeholderData: keepPreviousData,
   });
 
+  const books = query.data ?? [];
+  const showToolbar = searchText.trim() !== "" || trimmedSearch !== "" || books.length > 0;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
-  const [columns, setColumns] = useState(1);
+  const initialWidth = typeof window === "undefined" ? 0 : Math.max(320, window.innerWidth - 64);
+  const [gridWidth, setGridWidth] = useState(initialWidth);
+  const [scrollHeight, setScrollHeight] = useState(0);
+  const [columns, setColumns] = useState(
+    Math.max(1, Math.floor((initialWidth + GRID_GAP) / (GRID_CARD_MIN_WIDTH + GRID_GAP))),
+  );
 
   useEffect(() => {
-    if (view !== "grid") {
+    if (view !== "grid" || !showToolbar) {
       return;
     }
     const update = () => {
@@ -77,7 +102,14 @@ export function LibraryPage({ client }: LibraryPageProps) {
       if (!element) {
         return;
       }
-      setColumns(Math.max(1, Math.floor(element.clientWidth / GRID_CARD_MIN_WIDTH) || 1));
+      // 首帧 clientWidth 可能为 0；用窗口宽度测量，避免退化为单列超宽卡面。
+      const width = element.clientWidth > 0 ? element.clientWidth : window.innerWidth;
+      if (width <= 0) {
+        return;
+      }
+      setGridWidth(width);
+      setScrollHeight(element.clientHeight);
+      setColumns(Math.max(1, Math.floor((width + GRID_GAP) / (GRID_CARD_MIN_WIDTH + GRID_GAP))));
     };
     update();
     window.addEventListener("resize", update);
@@ -89,9 +121,8 @@ export function LibraryPage({ client }: LibraryPageProps) {
       window.removeEventListener("resize", update);
       observer?.disconnect();
     };
-  }, [view]);
+  }, [showToolbar, view]);
 
-  const books = query.data ?? [];
   const hasData = query.data !== undefined;
   const rows = useMemo(() => {
     if (view === "list" || columns <= 1) {
@@ -104,10 +135,31 @@ export function LibraryPage({ client }: LibraryPageProps) {
     return grouped;
   }, [books, columns, view]);
 
+  const gridCardWidth =
+    gridWidth > 0 ? (gridWidth - GRID_GAP * (columns - 1)) / columns : GRID_CARD_MIN_WIDTH;
+  const widthRowHeight = gridRowHeight(gridCardWidth);
+  const rowHeight =
+    view === "list"
+      ? LIST_ROW_HEIGHT
+      : scrollHeight > 0
+        ? Math.min(widthRowHeight, Math.max(LIST_ROW_HEIGHT, scrollHeight))
+        : widthRowHeight;
+  const coverWidth =
+    view === "grid"
+      ? Math.max(
+          0,
+          Math.min(
+            gridCardWidth - GRID_CARD_CHROME,
+            Math.floor(
+              ((rowHeight - GRID_ROW_EXTRA - GRID_CARD_CHROME - GRID_CARD_META_HEIGHT) * 2) / 3,
+            ),
+          ),
+        )
+      : undefined;
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => (view === "list" ? LIST_ROW_HEIGHT : GRID_ROW_HEIGHT),
+    estimateSize: () => rowHeight,
     overscan: 2,
     getItemKey: (index) => rows[index]?.[0]?.id ?? index,
   });
@@ -120,7 +172,6 @@ export function LibraryPage({ client }: LibraryPageProps) {
   const isInitialLoading = query.isPending && !hasData;
   const isInitialError = query.isError && !hasData;
   const isRefreshError = query.isError && hasData;
-  const showToolbar = searchText.trim() !== "" || trimmedSearch !== "" || books.length > 0;
   const isEmptyLibrary = hasData && books.length === 0 && trimmedSearch === "";
   const isNoMatch = hasData && books.length === 0 && trimmedSearch !== "";
 
@@ -205,13 +256,24 @@ export function LibraryPage({ client }: LibraryPageProps) {
     }
   }, [client, queryClient, removePending, removingBook, restoreFocus]);
 
-  const renderBook = (book: BookSummary, layout: "grid" | "list") => (
+  const renderBook = (
+    book: BookSummary,
+    layout: "grid" | "list",
+    coverWidthDuringRender?: number,
+  ) => (
     <div key={book.id} className={layout === "grid" ? "book-card" : "book-row"}>
-      <BookCover book={book} />
-      <div className="book-meta">
-        <h3 className="book-title">{book.title}</h3>
-        <p className="book-author">{book.author}</p>
-      </div>
+      <button
+        type="button"
+        className="book-open"
+        aria-label={`打开《${book.title}》`}
+        onClick={() => onOpenBook?.(book.id)}
+      >
+        <BookCover book={book} coverWidth={coverWidthDuringRender} />
+        <span className="book-meta">
+          <span className="book-title">{book.title}</span>
+          <span className="book-author">{book.author}</span>
+        </span>
+      </button>
       <button
         type="button"
         className="book-remove"
@@ -325,7 +387,7 @@ export function LibraryPage({ client }: LibraryPageProps) {
           <ul
             className="library-virtual"
             aria-label="书库书籍"
-            style={{ height: virtualizer.getTotalSize() }}
+            style={{ height: rows.length * rowHeight }}
           >
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const rowBooks = rows[virtualRow.index] ?? [];
@@ -335,11 +397,12 @@ export function LibraryPage({ client }: LibraryPageProps) {
                   className={view === "grid" ? "book-grid-row" : "book-list-row"}
                   style={{
                     transform: `translateY(${virtualRow.start}px)`,
+                    height: rowHeight,
                     gridTemplateColumns:
                       view === "grid" ? `repeat(${columns}, minmax(0, 1fr))` : undefined,
                   }}
                 >
-                  {rowBooks.map((book) => renderBook(book, view))}
+                  {rowBooks.map((book) => renderBook(book, view, coverWidth))}
                 </li>
               );
             })}

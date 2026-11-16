@@ -1,6 +1,6 @@
 # Qurner 个人电子书阅读器软件设计说明书（SDS）
 
-**文档版本：** 0.13-draft  
+**文档版本：** 0.18-draft
 **文档状态：** 架构草案，待确认后作为 MVP 实现基线  
 **适用需求：** `SRS.md` 0.3-draft  
 **目标平台：** macOS 14 及以上，Apple Silicon  
@@ -48,8 +48,8 @@ MVP 不实现高亮、批注、TXT、PDF、收藏夹、文件重定位、备份�
 | 书库虚拟化 | TanStack Virtual 3 | 分别虚拟化列表行和响应式网格行，避免 1,000 本书创建完整卡片 DOM |
 | 系统文件选择 | `tauri-plugin-dialog` 2 Rust API + 自定义 Tauri command | 使用系统原生多选文件对话框，只返回用户明确选择的路径；前端不直接获得 dialog 插件权限 |
 | 封面缓存 | `image 0.25.10`，仅启用 JPEG/PNG/GIF/WebP 解码 | 导入时将嵌入封面缩放为 512 px 长边 JPEG；不重新读取原始 EPUB 即可显示书库封面 |
-| 阅读器临时状态 | Zustand | 管理当前章节、页状态、侧栏和瞬时 UI 状态 |
-| 路由 | React Router | 区分书库、阅读器及未来的书籍详情 |
+| 阅读器临时状态 | React 本地状态 | 管理单活动书籍、当前章节、目录开关和临时阅读模式；这些状态不需要跨页面共享 |
+| 页面切换 | App 本地状态 | 书库与阅读器是当前仅有的两个主界面，不为两页导航引入 Router 或全局状态库 |
 | 前端校验 | Zod | 校验所有 Tauri 命令和 iframe 消息 |
 | Rust 测试 | 标准测试框架 + `tempfile` | 覆盖解析、存储、指纹和错误分支 |
 | 前端测试 | Vitest + React Testing Library | 组件和状态测试 |
@@ -188,7 +188,8 @@ library-core -X-> Tauri
 - 阅读器：iframe 容器、目录、书签、设置、主题和沉浸式控制。
 - 全局：错误提示、可恢复状态和命令桥接。
 
-TanStack Query 管理后端持久数据；Zustand 只管理不需要持久化的阅读器瞬时状态。
+TanStack Query 管理后端持久数据；书库/阅读器切换、目录开关和本轮临时阅读模式使用 React
+本地状态。只有出现跨界面共享的瞬时状态需求时，才重新评估是否引入全局状态库。
 
 TanStack Query 使用单一 `QueryClient`。本地 Tauri 命令默认不自动重试，也不因窗口重新
 聚焦而重复查询；写操作成功或对应事件完成后通过固定 query key 显式失效。文件选择路径、
@@ -377,7 +378,42 @@ M3 spike 的页步长定义为 `viewportWidth + gap`。页数由实际最大横�
 由阅读脚本滚动约一个视口高度，上下方向键保留 WebKit 默认行滚动。到达章节边界时发送一次
 `spine-request`；在位置离开边界前重复输入不得重复发送同一方向的请求。
 
-### 6.5.1 模式切换与布局恢复
+### 6.5.1 章节导航、目录与键盘
+
+`ReaderSession` 必须携带只读 spine 映射，供前端从当前会话令牌构造任一章节的安全
+`epub://` URL。前端不得猜测章节路径，也不得把 TOC fragment 直接拼进 URL 后假定阅读脚本
+会定位到该 fragment。
+
+```ts
+type ReaderSpineItem = {
+  index: number
+  href: string
+}
+```
+
+- spine 按 EPUB 阅读顺序排列，`index` 从 0 开始连续递增，`href` 是 EPUB 根目录内的安全
+  相对资源路径。
+- 打开书籍时，若存在 `initialLocator`，前端加载其 `spineIndex/spineHref` 对应章节；
+  否则加载 `spine[0]`。`frameUrl` 继续表示首章，并作为会话令牌的安全来源。
+- EPUB 允许多个 spine 项引用同一 manifest 资源；这些项的 `index` 不同但 `href` 可以相同。
+  ReaderShell 必须在 `reader:init` 中传递当前逻辑 `spineIndex`，阅读引擎以该值生成
+  Locator；协议 HTML 注入的 `data-spine-index` 只作为无 init 覆盖时的回退。
+- 目录项通过 `spineIndex` 找到目标章节。点击目录项后关闭目录，并保留跳转后的阅读位置；
+  只打开后关闭而未选择目录项时，不得改变当前 Locator。
+- MVP 的目录跳转和跨章节导航统一通过销毁旧 iframe/ParentBridge、重建目标章节 iframe、
+  再发送 `reader:init` 完成。同一章节内的 fragment 跳转也使用同一路径，避免维护第二套
+  跨 iframe 定位协议。
+- 目录目标含 fragment 时，阅读脚本在目标文档布局完成后使用
+  `document.getElementById(fragment)` 定位，不得把 fragment 插入 CSS selector。实现可先
+  尝试原始值，再对合法百分号编码单次解码后重试；找不到时回到章节起点并完成握手。
+- 翻到下一 spine 项时使用 `initialNavigation={kind:'start'}`；返回上一 spine 项时使用
+  `initialNavigation={kind:'end'}`。首章继续向前或末章继续向后时保持原位置，不报错。
+- 分页模式的左右键由阅读脚本直接翻页；连续滚动模式的左右键滚动约 0.9 个视口高度，
+  上下键不拦截。父窗口聚焦在非交互区域时应用同一规则。
+- 输入框、文本域、选择框、按钮、链接和 `contenteditable` 区域获得焦点时，阅读器不得
+  吞掉方向键或 Esc。M5C 的 Esc 只关闭当前 TOC 抽屉；沉浸式等外层关闭顺序由 M5D 扩展。
+
+### 6.5.2 模式切换与布局恢复
 
 - 切换分页/滚动、窗口尺寸变化或字体加载完成前先捕获 Locator。
 - 布局完成后按 `spineHref`、`textOffset` 和 quote 恢复；恢复成功前暂不处理翻页输入。
@@ -396,6 +432,42 @@ M3 spike 的页步长定义为 `viewportWidth + gap`。页数由实际最大横�
 - 黑夜主题不得添加无条件图片滤镜、反色或混合模式。
 
 改变字号、窗口大小、主题或阅读模式前，先捕获当前 `ReaderLocator`；布局完成后恢复该锚点。
+
+### 6.6.1 字号与主题应用
+
+- 字号范围固定为 `0.5..=3.0`，界面以 0.1 为步长调整并以百分比显示；每次离散操作立即
+  发送新的完整 `ReaderSettings`。
+- 阅读脚本通过根元素字号变量缩放正文，不修改正文 DOM、不重建 HTML，也不对图片使用
+  `filter`、`invert`、`mix-blend-mode` 或整体缩放。
+- 白天主题使用可读的浅色背景和默认前景色；黑夜主题使用深色背景和浅色默认前景色。
+  主题只设置阅读根/正文默认颜色，不覆盖原书子元素显式声明的特殊颜色和图片颜色。
+- 字号、主题或模式变化前捕获当前 Locator；设置应用后重新计算布局并恢复同一章节文本
+  锚点，再恢复翻页输入。
+- 应用设置和持久化设置是两个阶段：先在当前会话即时显示，再写数据库。写失败显示固定
+  非阻塞提示“设置未能保存，请重试。”，不得静默删除旧记录或退化成未定义的设置。
+
+### 6.6.2 设置继承与持久化
+
+- 全局默认保存在既有的 `app_settings(key='reader_defaults')`，值是只包含已显式设置
+  字段的 JSON 补丁；缺失字段使用内置默认 `paged / 1.0 / day`。
+- 单书覆盖保存在既有的 `book_settings` 三列中；`NULL` 继续表示该字段继承全局。
+- `updateBookSettings` 只修改请求中出现的字段，`null` 明确清除该字段覆盖并恢复继承；
+  未出现字段保持不变。
+- `updateAppSettings` 合并到当前全局补丁，不修改任何单书覆盖。
+- `resetBookSettings` 清除该书全部覆盖字段，不影响其他书或全局默认。
+- 所有设置读取必须在同一次读取中完成全局和单书合并并验证范围；非法持久化值返回
+  `E_STORAGE`，不得静默回退或覆盖记录。
+
+### 6.6.3 沉浸式阅读
+
+- 沉浸式是当前 ReaderShell 会话的瞬时状态，默认关闭，打开新书时不得自动进入，也不写入
+  数据库。
+- 开启后隐藏标题、返回、目录、模式和设置控件，正文占满阅读区域；顶部保留一个可聚焦的
+  “显示阅读控件”热区和 pointer 触发区。
+- 指针进入顶部热区或键盘焦点进入控件时显示控件；用户可退出沉浸式、打开目录或设置。
+  目录/设置抽屉的关闭优先于退出沉浸式。
+- Esc 从内向外处理：先关闭设置抽屉，再关闭目录抽屉，最后退出沉浸式。
+- 书签入口在 M5E 加入沉浸式控件；M5D 不改变书签协议。
 
 ---
 
@@ -454,6 +526,35 @@ globalProgress =
 ```
 
 无文本内容的章节使用资源字节数作为回退权重。进度保存最多保留四位小数。
+
+## 7.5 进度保存流水线
+
+- `ReaderSession` 增加与 spine 等长的只读 `chapterWeights`；前端用相同公式显示全局进度，
+  Rust 在保存时重新计算，不信任前端提交的百分比。
+- 阅读脚本的每次 `reader:location-changed` 更新 ReaderShell 内存中的 latest Locator。
+  自动保存使用单一 pending-latest 队列和约 1 秒防抖；同一时刻最多一个写请求在途，避免旧
+  保存覆盖新位置。
+- 分页翻页、滚动停止、模式切换、字号/主题变化、目录/书签跳转、返回书库和正常关闭都
+  触发强制刷新。窗口关闭最多等待保存完成约 1 秒，失败也继续关闭，不阻塞用户退出。
+- `saveReadingState` 以 session 绑定的 bookId 写入 `reading_states`，Locator 必须匹配当前
+  manifestation 的 spine；全局进度由 `chapterWeights` 和
+  `intraSpineProgression` 重算并限制在 `0..=1`。
+- 保存失败保留内存最新 Locator，显示固定非阻塞提示，并在下一次位置变化或退出时重试；
+  不得删除或覆盖更旧的有效记录为非法值。
+- 新书无记录时从阅读顺序开头开始；已有记录恢复由 M5A/M3 的 Locator 算法负责。
+
+## 7.6 书签与文本复制
+
+- 书签使用当前读者 latest Locator；添加前通过 `reader:capture-locator` 获取一次最新位置，
+  成功后将该 Locator 作为书签锚点。请求必须携带 `captureRequestId`，响应必须回显同一 ID；
+  只有当前等待中的 ID 可以完成请求，超时或旧响应不得回退缓存 Locator 或创建书签。
+  书签只能通过 session 获取当前 bookId。
+- 同一书签点击跳转时，同章节使用 `reader:go-to`；跨章节重建目标 iframe，并以 Locator 作为
+  `reader:init.initialLocator`，不得只使用屏幕页码。
+- 书签列表/抽屉与目录、设置互斥；Esc 顺序为设置 → 书签 → 目录 → 沉浸式。
+- 正文选择使用 WebKit 原生文本选择。阅读注入样式必须允许 `user-select: text`，不能因原书
+  CSS 禁止选择而阻断复制；复制使用系统 Cmd/Ctrl+C，不新增内容剪贴板命令。
+- 选择/复制不得修改正文 DOM、原文文件或个人数据；复制失败沿用系统行为并保持阅读可用。
 
 ---
 
@@ -618,14 +719,17 @@ closeBook(sessionId: string): Promise<void>
 saveReadingState(input: {
   sessionId: string
   locator: ReaderLocator
+}): Promise<{
   globalProgression: number
-}): Promise<void>
+  savedAt: string
+}>
 getEffectiveSettings(bookId: string): Promise<ReaderSettings>
-updateAppSettings(patch: Partial<ReaderSettings>): Promise<ReaderSettings>
+updateAppSettings(patch: ReaderSettingsPatch): Promise<ReaderSettings>
 updateBookSettings(input: {
   bookId: string
-  patch: Partial<ReaderSettings>
+  patch: BookSettingsPatch
 }): Promise<ReaderSettings>
+resetBookSettings(bookId: string): Promise<ReaderSettings>
 listBookmarks(bookId: string): Promise<Bookmark[]>
 createBookmark(input: {
   sessionId: string
@@ -634,6 +738,14 @@ createBookmark(input: {
 }): Promise<Bookmark>
 deleteBookmark(bookId: string, bookmarkId: string): Promise<void>
 ```
+
+`saveReadingState` 只接受仍有效的 session；session 已关闭返回 `E_SESSION_INVALID`。
+Locator version、spine 归属、引文长度和数值范围全部校验后，以单条 UPSERT 写入
+`reading_states`，返回本次重算的全局进度和保存时间。前端不得直接提交或覆盖 bookId。
+
+书签命令使用当前 active book；`createBookmark` 必须通过 session 获取 bookId，不能接受前端
+传入的 bookId。书签 excerpt 可为空，最多 128 个 UTF-16 单元；删除时 bookmarkId 必须属于
+指定 book。书签列表按 `created_at DESC, id ASC` 稳定排序。
 
 `selectImportFiles` 返回用户明确选择的路径数组，顺序与对话框一致；取消时返回 `[]`。
 路径由前端原样传给 `startImport`，不得 trim、改写或显示完整本地路径。
@@ -685,11 +797,18 @@ type TocNode = {
   children: TocNode[]
 }
 
+type ReaderSpineItem = {
+  index: number
+  href: string
+}
+
 type ReaderSession = {
   sessionId: string
   bookId: string
   title: string
   frameUrl: string
+  spine: ReaderSpineItem[]
+  chapterWeights: number[]
   toc: TocNode[]
   initialLocator: ReaderLocator | null
   initialProgression: number
@@ -701,7 +820,32 @@ type ReaderSettings = {
   fontScale: number
   theme: ReaderTheme
 }
+
+type Bookmark = {
+  id: string
+  bookId: string
+  locator: ReaderLocator
+  excerpt: string | null
+  createdAt: string
+}
+
+type ReaderSettingsPatch = {
+  mode?: ReaderMode
+  fontScale?: number
+  theme?: ReaderTheme
+}
+
+type BookSettingsPatch = {
+  mode?: ReaderMode | null
+  fontScale?: number | null
+  theme?: ReaderTheme | null
+}
 ```
+
+`updateAppSettings` 返回合并后的全局默认设置；`updateBookSettings` 返回该书合并后的
+有效设置；`resetBookSettings` 清除该书全部覆盖并返回全局有效设置。`getEffectiveSettings`
+只接受 active book。所有 patch 必须至少包含一个字段，`book_settings` 的 `null` 用于
+清除对应继承覆盖，`app_settings` 不接受 `null`。
 
 ## 9.4 iframe 消息
 
@@ -750,16 +894,24 @@ payload。M3C 固定以下 payload：
 
 ```ts
 reader:init -> {
-  mode: 'paged' | 'scrolling'
+  spineIndex: number
+  settings: ReaderSettings
   initialLocator: ReaderLocator | null
+  initialNavigation?:
+    | { kind: 'start' }
+    | { kind: 'end' }
+    | { kind: 'fragment'; fragment: string }
 }
 reader:ready -> { engineVersion: string }
 reader:go-to -> { locator: ReaderLocator }
 reader:turn-page -> { direction: 'prev' | 'next' }
-reader:update-settings -> { mode: 'paged' | 'scrolling' }
-reader:capture-locator -> {}
+reader:update-settings -> { settings: ReaderSettings }
+reader:capture-locator -> {
+  captureRequestId: number
+}
 reader:location-changed -> {
   reason: 'init' | 'turn' | 'scroll' | 'layout' | 'go-to' | 'capture'
+  captureRequestId?: number
   locator: ReaderLocator
   mode: 'paged' | 'scrolling'
   pageIndex: number
@@ -779,9 +931,22 @@ reader:spine-request -> {
 }
 ```
 
+`initialLocator` 与 `initialNavigation` 互斥；`initialLocator` 为 `null` 且没有
+`initialNavigation` 时从当前章节起点开始。fragment 只作为 DOM id 使用，不进入 URL
+query、CSS selector 或日志。`spineIndex` 必须对应当前 ReaderSession spine 的逻辑位置，
+即使多个 spine 项共享同一 href 也不能被协议注入的首个 index 覆盖。`reader:init` 仍使用
+协议版本 1，新增字段由严格 Zod schema 校验，旧字段语义保持不变。
+
+`ReaderSettings` 在 init 和 update-settings 中都必须是完整对象，严格校验
+`mode / fontScale / theme`；`fontScale` 为有限数 `0.5..=3.0`。初始化先应用设置再恢复
+Locator/navigation；运行中更新先捕获 Locator，再应用完整设置并恢复。设置写入失败不得
+触发任何阅读会话关闭。
+
 `reader:ready` 只能在初次布局和初始 Locator 恢复完成后发送。`reader:capture-locator`
-通过一次 `reader:location-changed(reason="capture")` 响应。窗口、模式或字号布局完成的
-位置事件使用 `reason="layout"`。
+携带当前窗口内单调递增的正整数 `captureRequestId`，并通过一次
+`reader:location-changed(reason="capture")` 响应；响应必须回显该 ID，其他 reason 不得
+携带 `captureRequestId`。父桥只完成 ID 匹配的等待项，错误、超时和迟到响应不得创建
+书签。窗口、模式或字号布局完成的位置事件使用 `reason="layout"`。
 
 ---
 
@@ -1007,4 +1172,9 @@ npm run tauri build
 | 0.10-draft | 2026-11-14 | 历史草案 | 固定 CSP nonce、可信脚本入口、HTML 防护和 iframe 消息信封 |
 | 0.11-draft | 2026-11-14 | 历史草案 | 固定 Locator 偏移语义、分页页步长、模式切换和 M3C iframe payload |
 | 0.12-draft | 2026-11-14 | 历史草案 | 采用 TanStack Query 5；文件选择使用 dialog 插件 Rust API 和自定义 `selectImportFiles` |
-| 0.13-draft | 2026-11-14 | 当前草案 | 批准 image 封面缓存、`cover://` 协议和 TanStack Virtual 1,000 本书库虚拟化 |
+| 0.13-draft | 2026-11-14 | 历史草案 | 批准 image 封面缓存、`cover://` 协议和 TanStack Virtual 1,000 本书库虚拟化 |
+| 0.14-draft | 2026-11-15 | 历史草案 | 增加只读 spine 映射、TOC/跨章节导航、`reader:init` 初始导航与键盘边界，并移除尚未采用的 Router/Zustand 架构假设 |
+| 0.15-draft | 2026-11-15 | 历史草案 | 支持同一 href 的多个 spine 项，要求 `reader:init` 传递逻辑 `spineIndex`，避免协议首个 index 覆盖实际位置 |
+| 0.16-draft | 2026-11-15 | 历史草案 | 固定 M5D 设置继承、字号/主题应用、iframe `settings` payload 和沉浸式阅读边界 |
+| 0.17-draft | 2026-11-15 | 当前草案 | 固定 M5E 进度保存流水线、书签 DTO/跳转和原生文本复制边界 |
+| 0.18-draft | 2026-11-16 | 当前草案 | 为 `reader:capture-locator` 增加请求 ID 回显，消除迟到响应误用于新书签请求 |

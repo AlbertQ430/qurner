@@ -1963,6 +1963,7 @@ dependencies = [
  "icu_collator",
  "image",
  "reader-model",
+ "rusqlite",
  "serde_json",
  "storage-core",
  "time",

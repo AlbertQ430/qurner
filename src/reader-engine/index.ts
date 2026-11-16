@@ -37,9 +37,8 @@ function bootstrap(): void {
       parentOrigin = "";
     }
   }
-  if (parentOrigin.length === 0) {
-    return;
-  }
+  // referrer 为空（例如 packaged Qurner.app 的 iframe referrerPolicy=no-referrer）
+  // 时不退出：由 IframeBridge 从父窗口的合法 init 学习父 origin 并校验后续消息。
 
   try {
     const engine = createDomReaderEngine(document, spineIndex, spineHref);

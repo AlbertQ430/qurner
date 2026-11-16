@@ -80,7 +80,11 @@ function validInit(token = TOKEN) {
     sessionId: SESSION_ID,
     sessionToken: token,
     type: "reader:init",
-    payload: { mode: "paged", initialLocator: null },
+    payload: {
+      spineIndex: 0,
+      settings: { mode: "paged", fontScale: 1, theme: "day" },
+      initialLocator: null,
+    },
   };
 }
 

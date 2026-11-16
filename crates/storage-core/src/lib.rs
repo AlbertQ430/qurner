@@ -5,13 +5,17 @@
 
 #![forbid(unsafe_code)]
 
+mod bookmarks;
 mod books;
 mod error;
+mod open;
 mod records;
 mod schema;
 mod service;
 
+pub use bookmarks::BookmarkRecord;
 pub use error::StorageError;
+pub use open::{BookSettingsRecord, OpenBookRecord, ReadingStateRecord};
 pub use records::{ExistingBookRecord, NewBookRecord, ReactivateOutcome};
 pub use service::StorageService;
 

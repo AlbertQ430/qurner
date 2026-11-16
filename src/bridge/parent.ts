@@ -3,8 +3,9 @@ import {
   parseReaderMessage,
   type ReaderLocationChangedPayload,
   type ReaderLocator,
-  type ReaderMode,
+  type ReaderNavigation,
   type ReaderPageChangedPayload,
+  type ReaderSettings,
   type ReaderSpineRequestPayload,
   readerMessageSchema,
 } from "./messages";
@@ -15,8 +16,10 @@ export interface ParentBridgeOptions {
   sessionId: string;
   sessionToken: string;
   timeoutMs?: number;
-  initialMode?: ReaderMode;
+  settings: ReaderSettings;
+  spineIndex: number;
   initialLocator?: ReaderLocator | null;
+  initialNavigation?: ReaderNavigation;
   onReady?: (engineVersion: string) => void;
   onError?: (code: string, message: string) => void;
   onLocationChanged?: (payload: ReaderLocationChangedPayload) => void;
@@ -69,8 +72,12 @@ export class ParentBridge {
         sessionToken: this.options.sessionToken,
         type: "reader:init",
         payload: {
-          mode: this.options.initialMode ?? "paged",
+          spineIndex: this.options.spineIndex,
+          settings: this.options.settings,
           initialLocator: this.options.initialLocator ?? null,
+          ...(this.options.initialNavigation
+            ? { initialNavigation: this.options.initialNavigation }
+            : {}),
         },
       });
       target.postMessage(message, "*");
@@ -90,13 +97,13 @@ export class ParentBridge {
   }
 
   /** 切换阅读模式。 */
-  updateMode(mode: ReaderMode): boolean {
-    return this.sendReady("reader:update-settings", { mode });
+  updateSettings(settings: ReaderSettings): boolean {
+    return this.sendReady("reader:update-settings", { settings });
   }
 
-  /** 请求捕获当前 Locator。 */
-  captureLocator(): boolean {
-    return this.sendReady("reader:capture-locator", {});
+  /** 请求捕获当前 Locator；captureRequestId 用于关联迟到的响应。 */
+  captureLocator(captureRequestId: number): boolean {
+    return this.sendReady("reader:capture-locator", { captureRequestId });
   }
 
   getState(): ParentBridgeState {

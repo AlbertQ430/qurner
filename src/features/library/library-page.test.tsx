@@ -157,7 +157,11 @@ class FakeLibraryClient implements LibraryCommandClient {
   }
 }
 
-function renderLibrary(client: FakeLibraryClient, queryClient = createQueryClient()) {
+function renderLibrary(
+  client: FakeLibraryClient,
+  queryClient = createQueryClient(),
+  onOpenBook?: (bookId: string) => void,
+) {
   const view = render(
     <QueryClientProvider client={queryClient}>
       <ImportFlowProvider
@@ -165,7 +169,7 @@ function renderLibrary(client: FakeLibraryClient, queryClient = createQueryClien
         eventSubscriber={fakeImportEvents}
         queryClient={queryClient}
       >
-        <LibraryPage client={client} />
+        <LibraryPage client={client} onOpenBook={onOpenBook} />
       </ImportFlowProvider>
     </QueryClientProvider>,
   );
@@ -302,6 +306,27 @@ describe("library page", () => {
     await waitFor(() => {
       expect(scrollToMock).toHaveBeenCalledWith({ top: 0 });
     });
+  });
+
+  it("opens a book from the card action without removing it", async () => {
+    const client = new FakeLibraryClient();
+    client.responses = [BOOKS];
+    const onOpenBook = vi.fn();
+    renderLibrary(client, createQueryClient(), onOpenBook);
+    await screen.findByText("中文书名");
+
+    const openButton = screen.getByRole("button", {
+      name: "打开《中文书名》",
+    });
+    expect(openButton.tagName).toBe("BUTTON");
+    fireEvent.click(openButton);
+    expect(onOpenBook).toHaveBeenCalledWith("b1");
+    expect(client.softRemoveCalls).toHaveLength(0);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "从书库移除《中文书名》" }));
+    await screen.findByRole("dialog");
+    expect(onOpenBook).toHaveBeenCalledTimes(1);
   });
 
   it("debounces consecutive input and only requests the final trimmed value", async () => {

@@ -254,7 +254,7 @@ fn html_responses_use_fresh_nonce_and_inject_single_engine() {
     let path = write_file(directory.path(), "book.epub", &clean);
     let registry = SessionRegistry::new();
     let book = parse_epub(&path).expect("parse");
-    let handle_value = registry.create(&path, book).expect("session");
+    let handle_value = registry.create("book-1", &path, book).expect("session");
 
     let first = handle(
         &registry,
@@ -329,7 +329,7 @@ fn strips_active_content_and_preserves_relative_urls() {
     let path = write_file(directory.path(), "book.epub", &clean);
     let registry = SessionRegistry::new();
     let book = parse_epub(&path).expect("parse");
-    let handle_value = registry.create(&path, book).expect("session");
+    let handle_value = registry.create("book-1", &path, book).expect("session");
 
     // 替换为含主动内容的 HTML（解析阶段会拒绝 script，因此先解析干净版本）。
     let hostile = build_epub(
@@ -409,7 +409,9 @@ fn serves_built_engine_and_rejects_manifest_shadowing() {
     let path = write_file(directory.path(), "book.epub", &clean);
     let registry = SessionRegistry::new();
     let book = parse_epub(&path).expect("parse");
-    let handle_value = registry.create(&path, book.clone()).expect("session");
+    let handle_value = registry
+        .create("book-1", &path, book.clone())
+        .expect("session");
 
     // 即使 manifest 声明了保留路径，也只能返回内置脚本。
     let response = handle(
@@ -454,7 +456,7 @@ fn serves_built_engine_and_rejects_manifest_shadowing() {
     assert_eq!(other.status, 404);
 
     // 清单中的同路径条目不能覆盖内置脚本（重新创建会话验证）。
-    let second = registry.create(&path, book).expect("session");
+    let second = registry.create("book-1", &path, book).expect("session");
     let response = handle(
         &registry,
         "GET",
@@ -485,7 +487,7 @@ fn non_html_resources_are_not_rewritten() {
     let path = write_file(directory.path(), "book.epub", &clean);
     let registry = SessionRegistry::new();
     let handle_value = registry
-        .create(&path, parse_epub(&path).expect("parse"))
+        .create("book-1", &path, parse_epub(&path).expect("parse"))
         .expect("session");
 
     for (name, media_type, expected) in [
@@ -517,7 +519,7 @@ fn invalid_utf8_html_returns_fixed_500() {
     let path = write_file(directory.path(), "book.epub", &clean);
     let registry = SessionRegistry::new();
     let handle_value = registry
-        .create(&path, parse_epub(&path).expect("parse"))
+        .create("book-1", &path, parse_epub(&path).expect("parse"))
         .expect("session");
 
     fs::write(&path, build_epub_bytes_with_invalid_chapter()).expect("write invalid book");
@@ -603,7 +605,7 @@ fn injects_single_engine_when_head_is_only_in_comment_or_heading() {
     let path = write_file(directory.path(), "book.epub", &clean);
     let registry = SessionRegistry::new();
     let handle_value = registry
-        .create(&path, parse_epub(&path).expect("parse"))
+        .create("book-1", &path, parse_epub(&path).expect("parse"))
         .expect("session");
 
     let fragment = "<!-- <head> --><heading>标题</heading><p>正文</p>";
@@ -631,7 +633,7 @@ fn non_spine_html_does_not_inject_engine() {
     let path = write_file(directory.path(), "book.epub", &clean);
     let registry = SessionRegistry::new();
     let handle_value = registry
-        .create(&path, parse_epub(&path).expect("parse"))
+        .create("book-1", &path, parse_epub(&path).expect("parse"))
         .expect("session");
 
     let response = handle(

@@ -65,6 +65,89 @@ impl LibraryService {
         paths.iter().map(|path| self.import(path)).collect()
     }
 
+    /// 打开书籍并返回创建会话前所需的完整数据。
+    pub fn open_book(&self, book_id: &str) -> Result<crate::open::OpenBook, BookError> {
+        crate::open::open_book(&self.storage, book_id)
+    }
+
+    /// 记录最近打开时间；会话创建成功后调用。
+    pub fn mark_opened(&self, book_id: &str) -> Result<(), BookError> {
+        crate::open::mark_opened(&self.storage, book_id)
+    }
+
+    /// 列出书签（created_at DESC, id ASC）。
+    pub fn list_bookmarks(&self, book_id: &str) -> Result<Vec<reader_model::Bookmark>, BookError> {
+        crate::bookmarks::list_bookmarks(&self.storage, book_id)
+    }
+
+    /// 创建书签；excerpt 缺省从 Locator quote 截取。
+    pub fn create_bookmark(
+        &self,
+        book_id: &str,
+        locator: &reader_model::ReaderLocator,
+        excerpt: Option<&str>,
+    ) -> Result<reader_model::Bookmark, BookError> {
+        crate::bookmarks::create_bookmark(&self.storage, book_id, locator, excerpt)
+    }
+
+    /// 删除属于指定书籍的书签。
+    pub fn delete_bookmark(&self, book_id: &str, bookmark_id: &str) -> Result<(), BookError> {
+        crate::bookmarks::delete_bookmark(&self.storage, book_id, bookmark_id)
+    }
+
+    /// 保存阅读位置并返回 UTC RFC3339 时间戳。
+    pub fn save_reading_state(
+        &self,
+        book_id: &str,
+        locator_json: &str,
+        global_progression: f64,
+    ) -> Result<String, BookError> {
+        if !global_progression.is_finite() {
+            return Err(BookError::InvalidInput);
+        }
+        let progression = global_progression.clamp(0.0, 1.0);
+        let timestamp = time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|_| BookError::Internal)?;
+        self.storage
+            .save_reading_state(book_id, locator_json, 1, progression, &timestamp)
+            .map_err(|error| BookError::Storage(error.into()))?;
+        Ok(timestamp)
+    }
+
+    /// 读取单书 effective settings。
+    pub fn get_effective_settings(
+        &self,
+        book_id: &str,
+    ) -> Result<reader_model::ReaderSettings, BookError> {
+        crate::settings::get_effective(&self.storage, book_id)
+    }
+
+    /// 更新全局默认设置。
+    pub fn update_app_settings(
+        &self,
+        patch: crate::settings::AppSettingsPatch,
+    ) -> Result<reader_model::ReaderSettings, BookError> {
+        crate::settings::update_app(&self.storage, patch)
+    }
+
+    /// 更新单书覆盖设置。
+    pub fn update_book_settings(
+        &self,
+        book_id: &str,
+        patch: crate::settings::BookSettingsPatch,
+    ) -> Result<reader_model::ReaderSettings, BookError> {
+        crate::settings::update_book(&self.storage, book_id, patch)
+    }
+
+    /// 清除单书覆盖。
+    pub fn reset_book_settings(
+        &self,
+        book_id: &str,
+    ) -> Result<reader_model::ReaderSettings, BookError> {
+        crate::settings::reset_book(&self.storage, book_id)
+    }
+
     /// 查询书库列表；搜索与排序由 storage 层参数化完成。
     pub fn list_books(&self, query: ListBooksQuery) -> Result<Vec<BookSummary>, BookError> {
         self.storage.list_books(query).map_err(map_storage_error)

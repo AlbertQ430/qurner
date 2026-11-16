@@ -4,18 +4,40 @@ import { listen, type Event as TauriEvent, type UnlistenFn } from "@tauri-apps/a
 import {
   type AppError,
   appErrorSchema,
+  type Bookmark,
+  type BookSettingsPatch,
   type BookSummary,
+  bookmarkListSchema,
+  bookmarkSchema,
   bookSummaryListSchema,
+  closeBookInputSchema,
+  createBookmarkInputSchema,
+  deleteBookmarkInputSchema,
+  getEffectiveSettingsInputSchema,
   type ImportCompletedEvent,
   type ImportProgressEvent,
   importCompletedEventSchema,
   importProgressEventSchema,
   type ListBooksInput,
+  listBookmarksInputSchema,
   listBooksInputSchema,
+  openBookInputSchema,
+  type ReaderLocator,
+  type ReaderSession,
+  type ReaderSettings,
+  type ReaderSettingsPatch,
+  readerSessionSchema,
+  readerSettingsSchema,
+  resetBookSettingsInputSchema,
+  type SaveReadingStateResult,
+  saveReadingStateInputSchema,
+  saveReadingStateResultSchema,
   selectImportFilesOutputSchema,
   softRemoveBookInputSchema,
   startImportInputSchema,
   startImportOutputSchema,
+  updateAppSettingsInputSchema,
+  updateBookSettingsInputSchema,
 } from "./ipc-schemas";
 
 /** 命令名与 Rust `#[tauri::command(rename = ...)]` 一致。 */
@@ -24,6 +46,16 @@ export const COMMAND_NAMES = {
   listBooks: "listBooks",
   softRemoveBook: "softRemoveBook",
   selectImportFiles: "selectImportFiles",
+  openBook: "openBook",
+  listBookmarks: "listBookmarks",
+  createBookmark: "createBookmark",
+  deleteBookmark: "deleteBookmark",
+  closeBook: "closeBook",
+  getEffectiveSettings: "getEffectiveSettings",
+  updateAppSettings: "updateAppSettings",
+  updateBookSettings: "updateBookSettings",
+  resetBookSettings: "resetBookSettings",
+  saveReadingState: "saveReadingState",
 } as const;
 
 /** 导入事件名。 */
@@ -74,6 +106,16 @@ export interface CommandBridge {
   listBooks(input: ListBooksInput["input"]): Promise<BookSummary[]>;
   softRemoveBook(bookId: string): Promise<void>;
   selectImportFiles(): Promise<string[]>;
+  openBook(bookId: string): Promise<ReaderSession>;
+  closeBook(sessionId: string): Promise<void>;
+  listBookmarks(bookId: string): Promise<Bookmark[]>;
+  createBookmark(sessionId: string, locator: ReaderLocator, excerpt?: string): Promise<Bookmark>;
+  deleteBookmark(bookId: string, bookmarkId: string): Promise<void>;
+  getEffectiveSettings(bookId: string): Promise<ReaderSettings>;
+  updateAppSettings(patch: ReaderSettingsPatch): Promise<ReaderSettings>;
+  updateBookSettings(bookId: string, patch: BookSettingsPatch): Promise<ReaderSettings>;
+  resetBookSettings(bookId: string): Promise<ReaderSettings>;
+  saveReadingState(sessionId: string, locator: ReaderLocator): Promise<SaveReadingStateResult>;
 }
 
 async function invokeValidated<T>(
@@ -124,6 +166,159 @@ export function createCommandBridge(transport: CommandTransport): CommandBridge 
           input: parsed.data.input,
         },
         (value) => bookSummaryListSchema.parse(value),
+      );
+    },
+
+    async openBook(bookId) {
+      const parsed = openBookInputSchema.safeParse({ bookId });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.openBook,
+        { bookId: parsed.data.bookId },
+        (value) => readerSessionSchema.parse(value),
+      );
+    },
+
+    async listBookmarks(bookId) {
+      const parsed = listBookmarksInputSchema.safeParse({ bookId });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.listBookmarks,
+        { bookId: parsed.data.bookId },
+        (value) => bookmarkListSchema.parse(value),
+      );
+    },
+
+    async createBookmark(sessionId, locator, excerpt) {
+      const parsed = createBookmarkInputSchema.safeParse({
+        sessionId,
+        locator,
+        ...(excerpt === undefined ? {} : { excerpt }),
+      });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.createBookmark,
+        {
+          sessionId: parsed.data.sessionId,
+          locator: parsed.data.locator,
+          ...(parsed.data.excerpt === undefined ? {} : { excerpt: parsed.data.excerpt }),
+        },
+        (value) => bookmarkSchema.parse(value),
+      );
+    },
+
+    async deleteBookmark(bookId, bookmarkId) {
+      const parsed = deleteBookmarkInputSchema.safeParse({
+        bookId,
+        bookmarkId,
+      });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      await invokeValidated(
+        transport,
+        COMMAND_NAMES.deleteBookmark,
+        { bookId: parsed.data.bookId, bookmarkId: parsed.data.bookmarkId },
+        (value) => {
+          if (value !== null) {
+            throw INTERNAL_APP_ERROR;
+          }
+          return undefined;
+        },
+      );
+    },
+
+    async closeBook(sessionId) {
+      const parsed = closeBookInputSchema.safeParse({ sessionId });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      await invokeValidated(
+        transport,
+        COMMAND_NAMES.closeBook,
+        { sessionId: parsed.data.sessionId },
+        (value) => {
+          if (value !== null) {
+            throw INTERNAL_APP_ERROR;
+          }
+          return undefined;
+        },
+      );
+    },
+
+    async getEffectiveSettings(bookId) {
+      const parsed = getEffectiveSettingsInputSchema.safeParse({ bookId });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.getEffectiveSettings,
+        { bookId: parsed.data.bookId },
+        (value) => readerSettingsSchema.parse(value),
+      );
+    },
+
+    async updateAppSettings(patch) {
+      const parsed = updateAppSettingsInputSchema.safeParse({ patch });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.updateAppSettings,
+        { patch: parsed.data.patch },
+        (value) => readerSettingsSchema.parse(value),
+      );
+    },
+
+    async updateBookSettings(bookId, patch) {
+      const parsed = updateBookSettingsInputSchema.safeParse({
+        input: { bookId, patch },
+      });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.updateBookSettings,
+        { input: parsed.data.input },
+        (value) => readerSettingsSchema.parse(value),
+      );
+    },
+
+    async resetBookSettings(bookId) {
+      const parsed = resetBookSettingsInputSchema.safeParse({ bookId });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.resetBookSettings,
+        { bookId: parsed.data.bookId },
+        (value) => readerSettingsSchema.parse(value),
+      );
+    },
+
+    async saveReadingState(sessionId, locator) {
+      const parsed = saveReadingStateInputSchema.safeParse({ sessionId, locator });
+      if (!parsed.success) {
+        throw INVALID_INPUT_APP_ERROR;
+      }
+      return invokeValidated(
+        transport,
+        COMMAND_NAMES.saveReadingState,
+        { sessionId: parsed.data.sessionId, locator: parsed.data.locator },
+        (value) => saveReadingStateResultSchema.parse(value),
       );
     },
 

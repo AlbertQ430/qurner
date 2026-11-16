@@ -94,3 +94,40 @@ mod tests {
         }
     }
 }
+
+/// 书签摘录最多保留的 UTF-16 单元数。
+pub const MAX_BOOKMARK_EXCERPT_UTF16: usize = 128;
+
+/// 基于文本 Locator 的书签。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bookmark {
+    pub id: String,
+    pub book_id: String,
+    pub locator: crate::locator::ReaderLocator,
+    pub excerpt: Option<String>,
+    pub created_at: String,
+}
+
+/// 从 quote exact 截取最多 128 个 UTF-16 单元；空文本返回 None。
+#[must_use]
+pub fn excerpt_from_quote(exact: &str) -> Option<String> {
+    if exact.is_empty() {
+        return None;
+    }
+    let mut units = 0_usize;
+    let mut output = String::new();
+    for character in exact.chars() {
+        let length = character.len_utf16();
+        if units + length > MAX_BOOKMARK_EXCERPT_UTF16 {
+            break;
+        }
+        units += length;
+        output.push(character);
+    }
+    if output.is_empty() {
+        None
+    } else {
+        Some(output)
+    }
+}

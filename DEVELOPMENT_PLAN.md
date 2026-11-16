@@ -1,8 +1,8 @@
 # Qurner MVP 开发计划
 
-**文档版本：** 0.61-draft
+**文档版本：** 0.95-draft
 **适用需求：** `SRS.md` 0.3-draft
-**适用设计：** `SDS.md` 0.13-draft
+**适用设计：** `SDS.md` 0.18-draft
 **目标：** 交付可在 macOS 14+ Apple Silicon 本地运行的 MVP
 
 ---
@@ -253,7 +253,7 @@ npm run tauri dev
 | `TASK-M3D` | WebKit 六类夹具、100 MB 按需加载和 M3 ADR 总验收 | `accepted` |
 
 M2 已提交（`88e39fc`）。M3A–M3D 已通过验收，用户已接受 ADR-0003，M3 正式关闭；
-M4A–M4D 已全部通过验收，M4 正式完成；M5 尚未启动。
+M4A–M4D、M5A–M5D、M5E-A/B 与 M5R1/R2/R3 已通过验收；M5E-C 等待完整证据复验。
 
 ## M4：导入与书库 UI
 
@@ -322,6 +322,87 @@ M3 已提交（`25b09e7`）。用户已授权启动 M4；M4A 使用现有 React�
 
 - AC-040、AC-070、AC-080、AC-090、AC-100、AC-110、AC-120、AC-130、AC-160、AC-170、AC-190、AC-200、AC-210、AC-220。
 - 所有 P0 均已有自动化测试或明确的人工验收证据。
+
+### 任务拆分
+
+| 任务 | 内容 | 状态 |
+|---|---|---|
+| `TASK-M5A` | 阅读会话、`openBook`/`closeBook`、初始位置与设置 | `accepted` |
+| `TASK-M5B` | 阅读器壳、书库打开、iframe 生命周期与错误返回 | `accepted` |
+| `TASK-M5C` | 嵌套目录、分页/滚动、章节导航与键盘 | `accepted` |
+| `TASK-M5D` | 字号、全局/单书设置、昼夜主题与沉浸式 | `accepted` |
+| `TASK-M5E-A` | 阅读进度保存、恢复、显示与退出刷新 | `accepted` |
+| `TASK-M5E-B` | 书签闭环与正文复制 | `accepted` |
+| `TASK-M5E-C` | M5 阅读器闭环总验收 | `blocked` |
+| `TASK-M5R1` | 真实 Qurner.app 阅读器握手修复 | `accepted` |
+| `TASK-M5R2` | 真实应用网格书库布局修复 | `accepted` |
+| `TASK-M5R3` | 沉浸式控件自动隐藏修复 | `accepted` |
+
+用户已授权启动 M5。M5A 只增加会话后端与严格命令契约，不新增依赖，也不修改阅读器页面；
+M5B–M5E 在前一任务 accepted 后依次启动。
+
+M5A 首轮验收退回返工：修复空 TOC fragment、ReaderLocator/frameUrl 严格校验、
+`mark_opened` 失败清理测试及 SourceChanged 文案。
+- M5A 第二轮复验：前三项修复通过；frameUrl 仍可被 `%2e%2e%2f` 等编码分隔符绕过。
+- M5A 终轮复验通过：frameUrl 单次解码后完整路径校验生效，后端会话契约完成。
+- M5B 已就绪：书库打开书籍、ReaderShell、sandbox iframe、ParentBridge 握手和关闭生命周期；
+  目录/模式/设置/进度留后续任务。
+- M5B 首轮验收退回返工：ReaderShell 需二次校验完整 frameUrl，并补 iframe error/关闭后迟到
+  load 生命周期测试。
+- M5B 返工复验通过：完整会话校验、late-load 防护、iframe error 和存储/日志测试完成。
+- M5C 首轮验收退回返工：允许重复 spine href 并传递逻辑 spineIndex；补齐 fragment、
+  键盘交互目标和目录交互/层级测试。
+- M5C 第二轮复验仍返工：`spineIndex` 必须成为必填协议字段；补重复 href 的端到端
+  索引测试，并修正分页 fragment 的页内非列首定位。
+- M5C 第二次返工复验通过：spineIndex 必填、重复 href 逻辑索引、inline/末页 fragment
+  定位及目录/键盘测试均完成；M5C accepted。
+- M5D 已就绪：设置持久化/继承、字号、昼夜主题和沉浸式阅读进入实现；进度、书签和复制
+  留 M5E。
+- M5D 首轮验收退回返工：设置写入原子性、跨 book 旧响应、ready 前应用、默认字号/主题、
+  错误提示和真实 WebKit 沉浸式测试待修复。
+- M5D 第二次返工复验：完整 WebKit 套件出现一次沉浸式热区失败；剩余 computed 字号
+  保留、语义非法设置回滚和 WebKit 稳定性问题。
+- M5D 最终复验通过：设置原子性、跨书旧响应、computed 字号、语义非法数据回滚和沉浸式
+  WebKit 流程均通过；M5D accepted。
+- M5E 已拆分启动：A 负责进度保存/恢复与退出刷新，B 负责书签和复制，C 负责 M5 全量
+  验收；M5E-A 进入 ready。
+- M5E-A 首轮验收退回返工：保存队列必须可等待 drain、绑定 session/generation，并修复
+  旧保存响应回退进度和异步关闭测试。
+- M5E-A 返工复验通过：in-flight/pending-latest drain、关闭顺序、旧 generation 隔离和
+  旧响应进度保护均完成；进度任务 accepted。
+- M5E-A accepted，启动 M5E-B：书签创建/列表/跳转/删除与正文选择复制进入实现；
+  M5E-C 继续等待 A、B 均 accepted。
+- M5E-B 首轮验收退回返工：添加书签必须使用最新 capture-locator 结果；补真实 Cmd/Ctrl+C
+  复制证据，以及重复 ID/事务失败测试。复制失败提示与 SDS 冲突，已从任务移除。
+- M5E-B 第二轮验收仍返工：存储失败测试和独立真实复制验证通过，但 capture 超时仍回退
+  旧 Locator，且 WebKit 用例未实际发送复制快捷键、报告描述与代码不一致。
+- M5E-B 第三轮验收仍返工：复制、Biome 和超时失败路径通过；capture 缺少请求 ID，
+  迟到响应仍可能在下一请求等待时被误用。SDS 0.18-draft 固定 capture 请求关联。
+- M5E-B 第四轮验收仍返工：迟到响应隔离已通过，但 `captureRequestId` 在 schema 和测试中
+  仍是可选项，未执行 SDS 0.18-draft 的强制回显契约。
+- M5E-B 第五轮复验通过：capture ID 已强制并条件校验，全部 165 项前端、43 项 WebKit
+  和 300 项 Rust 测试通过；M5E-B accepted。
+- 启动 M5E-C：以真实 Qurner.app、合成 EPUB、异常恢复、离线、100 MB/1,000 本规模和
+  完整需求追踪完成 M5 阅读器闭环总验收。
+- M5E-C 真实应用验收发现 BLOCKER：有效 EPUB 打开后握手超时，阅读器不可用；另有默认
+  网格布局 MAJOR。创建 TASK-M5R1/M5R2 草案，M5E-C 转 blocked。
+- 用户启动 M5R1：修复 no-referrer 条件下的真实 app reader-engine 握手，补打包环境
+  回归与真实 Qurner.app 正文章节证据；M5R2 保持 draft。
+- M5R1 验收通过：no-referrer 握手回归、来源学习与后续 source/token 校验完成；真实 app
+  已显示首章正文。越界临时文件已清理，M5R2 仍待启动。
+- 用户启动 M5R2：修复真实应用默认网格的列测量、卡面尺寸和封面裁切，保留列表与
+  1,000 本虚拟化行为。
+- M5R2 验收通过：真实 app 默认网格完整显示封面、书名、作者和移除操作，列表和
+  1,000 本虚拟化未回归；M5E-C 两个阻塞项均已解除。
+- 重新启动 M5E-C：保留上一轮失败报告作为历史，重新执行完整真实 app 用户旅程、
+  异常恢复、离线、100 MB/1,000 本规模与 AC 追踪。
+- M5E-C 第二次复验：真实主阅读闭环已可用，但沉浸式 header 不自动隐藏（MAJOR），
+  且全新导入、AC-040/130、真实 100 MB/1,000 本、断网和 ≤2 秒丢失窗口仍缺证据；
+  创建 TASK-M5R3，M5E-C 转 blocked。
+- 用户启动 M5R3：修复沉浸式控制区移出后的自动隐藏，保留热区显示、抽屉与键盘焦点
+  保护以及既有 Esc 顺序。
+- M5R3 验收通过：真实 app 初始隐藏、热区显示、移入正文后自动隐藏均成立；保留 1 条
+  测试 `act(...)` MINOR，不阻塞 AC-110。
 
 ## M6：加固与发布
 
@@ -541,3 +622,37 @@ npm run tauri build
 | 0.59-draft | 2026-11-15 | M4D 自动化复验通过；真实 GUI 冒烟等待用户操作，状态 blocked |
 | 0.60-draft | 2026-11-15 | M4D 真实 GUI 发现软移除未持久化、重启后重新出现；状态 rework，NFR-003 暂停 |
 | 0.61-draft | 2026-11-15 | M4D 返工复验通过并 accepted；真实 GUI、软移除重启和 NFR-003 均通过，M4 完成 |
+| 0.62-draft | 2026-11-15 | 启动 M5；拆分 M5A–M5E，阅读会话与打开/关闭书籍任务进入 ready |
+| 0.63-draft | 2026-11-15 | M5A 首轮验收退回返工：修复 TOC/路径契约并补会话清理测试 |
+| 0.64-draft | 2026-11-15 | M5A 第二轮复验：修复 frameUrl 编码斜杠/NUL/反斜杠绕过 |
+| 0.65-draft | 2026-11-15 | M5A 终轮复验通过并 accepted；阅读会话与打开/关闭书籍后端完成 |
+| 0.66-draft | 2026-11-15 | 启动 M5B：阅读器壳与 iframe 生命周期进入 ready |
+| 0.67-draft | 2026-11-15 | M5B 首轮验收退回返工：加强 frameUrl 运行时校验和 iframe 错误测试 |
+| 0.68-draft | 2026-11-15 | M5B 返工复验通过并 accepted；阅读器壳与 iframe 生命周期完成 |
+| 0.69-draft | 2026-11-15 | 启动 M5C；SDS 0.14-draft 增加 spine 与章节导航契约，TASK-M5C 进入 ready |
+| 0.70-draft | 2026-11-15 | M5C 首轮验收退回返工；SDS 0.15-draft 支持相同 href 的重复 spine 项并传递逻辑 spineIndex |
+| 0.71-draft | 2026-11-15 | M5C 第二轮复验仍返工：spineIndex 必填、重复 href 端到端和分页 fragment 页定位待修复 |
+| 0.72-draft | 2026-11-15 | M5C 第二次返工复验通过并 accepted；目录、模式、章节导航与键盘任务完成 |
+| 0.73-draft | 2026-11-15 | 启动 M5D；SDS 0.16-draft 固定设置继承、字号/主题和沉浸式契约 |
+| 0.74-draft | 2026-11-15 | M5D 首轮验收退回返工：设置原子性、旧响应隔离、样式默认值和沉浸式 E2E 待修复 |
+| 0.75-draft | 2026-11-15 | M5D 第二次返工复验仍未通过：测试波动、外部 CSS 字号和语义损坏设置回滚待修复 |
+| 0.76-draft | 2026-11-15 | M5D 最终复验通过并 accepted；设置、字号、主题和沉浸式阅读任务完成 |
+| 0.77-draft | 2026-11-15 | 启动 M5E；SDS 0.17-draft 拆分进度、书签/复制和 M5 总验收任务 |
+| 0.78-draft | 2026-11-15 | M5E-A 首轮验收退回返工：强制保存关闭竞态、旧队列和进度回退待修复 |
+| 0.79-draft | 2026-11-15 | M5E-A 返工复验通过并 accepted；进度保存、显示与退出刷新完成 |
+| 0.80-draft | 2026-11-15 | M5E-A accepted；M5E-B 进入 ready，书签闭环与正文复制启动 |
+| 0.81-draft | 2026-11-16 | M5E-B 首轮验收退回返工：修复 capture-locator 锚点并补复制与存储失败证据 |
+| 0.82-draft | 2026-11-16 | M5E-B 第二轮验收仍返工：禁止 capture 失败回退，并修正复制测试与报告不一致 |
+| 0.83-draft | 2026-11-16 | M5E-B 第三轮验收仍返工：SDS 0.18-draft 增加 captureRequestId，杜绝迟到响应误用 |
+| 0.84-draft | 2026-11-16 | M5E-B 第四轮验收仍返工：要求 captureRequestId 在请求和响应中强制且条件严格 |
+| 0.85-draft | 2026-11-16 | M5E-B 第五轮复验通过并 accepted；书签、正文复制与 capture 关联完成 |
+| 0.86-draft | 2026-11-16 | 用户启动 M5E-C；M5 阅读器闭环总验收进入 ready |
+| 0.87-draft | 2026-11-16 | M5E-C 真实应用发现阅读器握手 BLOCKER 与网格 MAJOR；创建 M5R1/M5R2 |
+| 0.88-draft | 2026-11-16 | 用户启动 TASK-M5R1；真实 Qurner.app 阅读器握手修复进入 ready |
+| 0.89-draft | 2026-11-16 | M5R1 验收通过；真实应用 no-referrer 握手恢复，正文可见 |
+| 0.90-draft | 2026-11-16 | 用户启动 TASK-M5R2；真实应用网格书库布局修复进入 ready |
+| 0.91-draft | 2026-11-16 | M5R2 验收通过；真实应用网格修复完成，等待 M5E-C 全量复验 |
+| 0.92-draft | 2026-11-16 | 重新启动 M5E-C 全量复验；R1/R2 阻塞项均已关闭 |
+| 0.93-draft | 2026-11-16 | M5E-C 第二次复验发现沉浸式隐藏 MAJOR；创建 M5R3，验收转 blocked |
+| 0.94-draft | 2026-11-16 | 用户启动 TASK-M5R3；沉浸式控件自动隐藏修复进入 ready |
+| 0.95-draft | 2026-11-16 | M5R3 验收通过；沉浸式自动隐藏完成，等待 M5E-C 完整复验 |
