@@ -136,6 +136,11 @@ describe("engine settings", () => {
     expect(document.body.style.fontSize).toContain("27px");
     expect(document.body.style.backgroundColor).toBe("rgb(29, 26, 22)");
     expect(document.body.style.color).toBe("rgb(237, 230, 217)");
+    // 切回白天后正文与主题类同步恢复，避免浅底浅字过渡状态残留。
+    engine.applySettings({ mode: "paged", fontScale: 1, theme: "day" });
+    expect(document.documentElement.classList.contains("qurner-night")).toBe(false);
+    expect(document.body.style.backgroundColor).toBe("rgb(246, 243, 236)");
+    expect(document.body.style.color).toBe("rgb(36, 31, 25)");
     const image = document.getElementById("img") as HTMLImageElement;
     expect(image.style.filter).toBe("");
     expect(document.body.style.fontFamily).toBe("");

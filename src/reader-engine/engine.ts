@@ -516,7 +516,12 @@ class DomReaderEngine implements ReaderEngine {
       this.originalComputedBodyFontSize = computed.length > 0 ? computed : null;
     }
     html.style.setProperty("--qurner-font-scale", String(this.fontScale));
-    html.classList.toggle("qurner-night", this.theme === "night");
+    const night = this.theme === "night";
+    // 先同步正文底色与文字色，再切换 html 主题类：父窗口 header 与 iframe 的
+    // 重绘不在同一帧，若先切类再改 body，切换瞬间可能出现浅底 + 浅字的过渡帧。
+    body.style.backgroundColor = night ? "#1d1a16" : "#f6f3ec";
+    body.style.color = night ? "#ede6d9" : "#241f19";
+    html.classList.toggle("qurner-night", night);
     // 字号只覆盖正文基线；缩放为 1 时恢复原书内联值（外部 CSS 字号因此生效），
     // 非 1 时以原书 computed 字号为基准缩放，图片不受影响。
     if (this.fontScale === 1) {
@@ -530,9 +535,7 @@ class DomReaderEngine implements ReaderEngine {
       body.style.fontSize = `calc(${base} * ${this.fontScale})`;
     }
     // 常见 EPUB 在 body 上声明白底黑字；主题以内联样式覆盖默认背景/正文色，
-    // 元素级显式颜色仍优先于继承。
-    body.style.backgroundColor = this.theme === "night" ? "#1d1a16" : "#f6f3ec";
-    body.style.color = this.theme === "night" ? "#ede6d9" : "#241f19";
+    // 元素级显式颜色仍优先于继承（背景/文字色已在切换类之前同步设置）。
   }
 
   private applyLayout(): void {

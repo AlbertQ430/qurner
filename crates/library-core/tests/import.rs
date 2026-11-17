@@ -263,6 +263,14 @@ fn batch_results_keep_input_order() {
     assert_eq!(results[0].status, ImportStatus::Imported);
     assert_eq!(results[1].status, ImportStatus::Duplicate);
     assert_eq!(results[2].status, ImportStatus::Failed);
+    let books = service
+        .list_books(reader_model::ListBooksQuery {
+            query: None,
+            sort: reader_model::BookSort::ImportedAt,
+            direction: reader_model::SortDirection::Desc,
+        })
+        .expect("列书库");
+    assert_eq!(books.len(), 1, "失败与重复项不得留下书籍记录");
 
     storage.shutdown().expect("shutdown");
 }

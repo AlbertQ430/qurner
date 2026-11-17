@@ -63,6 +63,68 @@ fn opens_path_with_chinese_characters_and_spaces() {
 }
 
 #[test]
+fn opening_a_path_that_is_a_file_fails_cleanly() {
+    let directory = temp_dir("file-path");
+    let path = directory.join("not-a-database");
+    std::fs::write(&path, b"not sqlite").expect("write");
+
+    let error = match StorageService::open(&path) {
+        Ok(_) => panic!("文件路径不应被当作数据库打开"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(!message.contains(path.to_str().expect("utf8")));
+    cleanup(&path);
+}
+
+#[test]
+fn read_only_database_write_failure_leaves_no_partial_record() {
+    use storage_core::NewBookRecord;
+
+    let directory = temp_dir("read-only");
+    let path = directory.join("reader.sqlite3");
+
+    let service = StorageService::open(&path).expect("应能打开");
+    service.shutdown().expect("shutdown");
+
+    let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&path, permissions).expect("readonly");
+
+    let opened = StorageService::open(&path);
+    if let Ok(service) = opened {
+        let error = service
+            .insert_new_book(NewBookRecord {
+                id: "book-1".to_string(),
+                fingerprint: "a".repeat(64),
+                source_path: "/tmp/合成书.epub".to_string(),
+                title: "只读".to_string(),
+                author: "作者".to_string(),
+                title_search: "只读".to_string(),
+                author_search: "作者".to_string(),
+                title_sort_key: Vec::new(),
+                author_sort_key: Vec::new(),
+                cover_cache_key: None,
+                manifest_json: "{}".to_string(),
+                manifest_version: 1,
+                imported_at: "2026-11-17T00:00:00Z".to_string(),
+            })
+            .expect_err("只读数据库写入应失败");
+        let message = error.to_string();
+        assert!(!message.contains(path.to_str().expect("utf8")));
+        assert!(!message.contains("sqlite"));
+        service.shutdown().expect("shutdown");
+    } else {
+        assert!(opened.is_err());
+    }
+
+    let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o600);
+    std::fs::set_permissions(&path, permissions).expect("writable");
+    cleanup(&path);
+}
+
+#[test]
 fn service_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<StorageService>();

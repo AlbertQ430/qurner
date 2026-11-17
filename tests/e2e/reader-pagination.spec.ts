@@ -751,3 +751,70 @@ test("missing and cross-spine locators report distinct errors", async ({ page })
   await page.waitForTimeout(200);
   expect((await messages(page, "reader:error")).length).toBe(2);
 });
+
+test("benchmark: paged turn-to-page-changed latency (20 samples)", async ({ page }) => {
+  test.setTimeout(120_000);
+  const engine = await engineSource();
+  await setupPage(page, longBody(), engine);
+  await send(page, initMessage("paged"));
+  await waitForCount(page, "reader:ready", 1);
+  await waitForReason(page, "init", 1);
+
+  await page.evaluate(() => {
+    const host = globalThis as unknown as {
+      __benchSamples: number[];
+      __benchT0: number | null;
+    };
+    host.__benchSamples = [];
+    host.__benchT0 = null;
+    const target = globalThis as unknown as {
+      addEventListener: (
+        type: string,
+        listener: (event: { data?: { type?: string } | null }) => void,
+      ) => void;
+    };
+    target.addEventListener("message", (event) => {
+      const data = event.data as { type?: string } | null;
+      if (data?.type === "reader:page-changed" && host.__benchT0 !== null) {
+        host.__benchSamples.push(Date.now() - host.__benchT0);
+        host.__benchT0 = null;
+      }
+    });
+  });
+
+  const samples: number[] = [];
+  for (let index = 0; index < 20; index += 1) {
+    const direction = index % 2 === 0 ? "next" : "prev";
+    await page.evaluate(() => {
+      const host = globalThis as unknown as { __benchT0: number | null };
+      host.__benchT0 = Date.now();
+    });
+    await send(page, command("reader:turn-page", { direction }));
+    await page.waitForFunction(
+      () => {
+        const host = globalThis as unknown as { __benchT0: number | null };
+        return host.__benchT0 === null;
+      },
+      undefined,
+      { timeout: 10_000 },
+    );
+    const value = await page.evaluate(() => {
+      const host = globalThis as unknown as { __benchSamples: number[] };
+      return host.__benchSamples[host.__benchSamples.length - 1] ?? 0;
+    });
+    samples.push(Number(value.toFixed(2)));
+  }
+
+  const sorted = [...samples].sort((left, right) => left - right);
+  const p50 = sorted[Math.floor(sorted.length / 2)];
+  const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
+  const report = { label: "turn-page", unit: "ms", samples, p50, p95, threshold: 150 };
+  const log = (
+    globalThis as unknown as {
+      console: { log: (message: string) => void };
+    }
+  ).console.log;
+  log(`TURN_PAGE_BENCH ${JSON.stringify(report)}`);
+  expect(samples).toHaveLength(20);
+  expect(p95).toBeLessThanOrEqual(150);
+});

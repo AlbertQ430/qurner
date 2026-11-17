@@ -194,6 +194,27 @@ mod tests {
     }
 
     #[test]
+    fn every_code_has_fixed_chinese_message_without_sensitive_data() {
+        for code in ALL_CODES {
+            let message = code.message();
+            assert!(!message.is_empty(), "{code:?}");
+            assert!(
+                message
+                    .chars()
+                    .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch)),
+                "{code:?} 缺少中文：{message}"
+            );
+            assert!(message.len() < 120, "{code:?} 文案过长");
+            assert!(!message.contains('/'), "{code:?} 泄漏路径");
+            assert!(!message.contains('\\'), "{code:?} 泄漏路径");
+            assert!(!message.contains("http"), "{code:?} 泄漏 URL");
+            assert!(!message.contains("sqlite"), "{code:?} 泄漏数据库信息");
+            assert!(!message.contains("rusqlite"), "{code:?} 泄漏数据库信息");
+            assert!(!message.contains("E_"), "{code:?} 泄漏内部 code");
+        }
+    }
+
+    #[test]
     fn error_round_trips_and_omits_empty_details() {
         let error = AppError::new(AppErrorCode::FileNotFound);
         let value = serde_json::to_value(&error).expect("serialize");

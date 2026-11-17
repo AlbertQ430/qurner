@@ -1029,3 +1029,19 @@ body {
   color: #8c8273;
   font-size: 0.8rem;
 }
+
+/* 系统深色外观下，阅读器外壳与抽屉仍保持浅底，文字必须为深色（避免浅底浅字）。 */
+@media (prefers-color-scheme: dark) {
+  .reader-shell,
+  .reader-header {
+    background: #f5f3ee;
+    color: #26221c;
+  }
+
+  .reader-settings,
+  .reader-toc,
+  .reader-bookmarks {
+    background: #fffdf8;
+    color: #26221c;
+  }
+}
